@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtlucqd';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtm6sdh';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -123,6 +123,7 @@ export class Menu {
     else if (id === 'up') this._scrollBy(-this.ROWS + 1);
     else if (id === 'down') this._scrollBy(this.ROWS - 1);
     else if (id.startsWith('row:')) this.sel = +id.slice(4);
+    if (this.api.onSelectTrack && this.tab === 'liked') this.api.onSelectTrack(this.list(), this.sel);
     this.songs.redraw(); this.card.redraw();
   }
 

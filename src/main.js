@@ -1,13 +1,13 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtlucqd';
-import * as sp from './spotify-api.js?v=mwtlucqd';
-import { lookupBpm } from './bpm.js?v=mwtlucqd';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtlucqd';
-import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtlucqd';
-import { Game } from './game.js?v=mwtlucqd';
-import { Pointers } from './ui3d.js?v=mwtlucqd';
-import { Menu } from './menu3d.js?v=mwtlucqd';
-import * as prof from './profile.js?v=mwtlucqd';
+import * as auth from './spotify-auth.js?v=mwtm6sdh';
+import * as sp from './spotify-api.js?v=mwtm6sdh';
+import { lookupBpm, prefetchBpm } from './bpm.js?v=mwtm6sdh';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtm6sdh';
+import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtm6sdh';
+import { Game } from './game.js?v=mwtm6sdh';
+import { Pointers } from './ui3d.js?v=mwtm6sdh';
+import { Menu } from './menu3d.js?v=mwtm6sdh';
+import * as prof from './profile.js?v=mwtm6sdh';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -60,7 +60,7 @@ const menu = new Menu(game.scene, pointers, {
     const tempo = getTempo(t), drops = getDrops(t, tempo);
     const st = prof.loadStats().tracks[t.id];
     return {
-      tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', deezer: '(from Deezer)', default: '(guess: tap A/X in game)' }[tempo.source]}`,
+      tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', lookup: `(${tempo.from})`, default: bpmPending.has(t.id) ? '(looking up…)' : '(guess: tap A/X in game)' }[tempo.source]}`,
       drop: { known: 'yes', marked: 'yes (you marked it)', estimated: 'estimated', none: 'none yet (click the stick at the drop to mark it)' }[drops.source],
       best: st ? `Best ${st.best.toLocaleString()} · played ${st.plays}×` : 'Not played yet',
     };
@@ -70,6 +70,11 @@ const menu = new Menu(game.scene, pointers, {
   onExit: () => exitToLobby(),
   onLogin: () => startLogin(),
   onPasteCode: () => pasteLoginCode(),
+  onSelectTrack: (list, index) => { // look the tempo up while the player reads the fight card
+    const t = list[index]; if (!t || isPractice(t)) return;
+    if (getTempo(t).source === 'default') { bpmPending.add(t.id); lookupBpm(t).finally(() => { bpmPending.delete(t.id); menu.refresh(); }); }
+    prefetchBpm(list.slice(index + 1, index + 6));
+  },
   audioError: () => S.spotifyError,
   onAudio: () => cycleOutput(),
   inApp: () => auth.inApp(),
@@ -128,6 +133,7 @@ async function connectPlayer(preferId) {
   const p = new ConnectPlayer(d); await p.init(); return p;
 }
 let spotifyStarting = null;
+const bpmPending = new Set();
 const onQuestDevice = (d) => !!d && /quest|oculus|meta/i.test(d.name || '');
 function ensureSpotify() {
   if (S.spotify) return Promise.resolve(S.spotify);
@@ -226,7 +232,7 @@ async function startTrack(track) {
   game.hitSounds = settings.hitSounds ?? isPractice(track);
   S.maxPos = 0; S.ending = false; S.nextAt = 0; tapper.reset();
   S.state = 'play'; menu.show('hidden');
-  if (!isPractice(track) && getTempo(track).source === 'default') { game.flash('Looking up tempo…', 3000); await lookupBpm(track); }
+  if (!isPractice(track) && getTempo(track).source === 'default') { game.flash('Looking up tempo…', 6000); await Promise.race([lookupBpm(track), new Promise((r) => setTimeout(r, 6000))]); }
   game.loadTrack(track, getTempo(track), settings.difficulty || 'normal');
   try { await player.play(track); }
   catch (e) {
@@ -454,6 +460,7 @@ async function loadSpotify() {
     });
     $('libInfo').textContent = S.liked.length ? `${S.liked.length} Liked Songs ready as levels.` : 'No Liked Songs found. Like some songs in Spotify, or use Practice.';
     menu.refresh();
+    prefetchBpm(S.liked.slice(0, 6)); // the top of the song wall gets real tempos first
   } catch (e) {
     console.error(e);
     if (e.status === 403) status('Spotify said 403: add your Spotify account under User Management in the app dashboard (Development Mode).', true);

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { generate, getDrops } from './beatmap.js?v=mwtlucqd';
-import { Shatter } from './shatter.js?v=mwtlucqd';
+import { generate, getDrops } from './beatmap.js?v=mwtm6sdh';
+import { Shatter } from './shatter.js?v=mwtm6sdh';
 
 const LEAD_S = 1.7;          // seconds a missile is visible before its beat
 const FAR_SPEED = 10;        // m/s while flying in
@@ -277,7 +277,7 @@ export class Game {
     this._regen();
     this.calibrateHeight();
     this.mode = 'play';
-    this.flash(tempo.source === 'default' ? 'Tempo is a guess: tap A/X (or T) on the beat to lock it' : tempo.source === 'deezer' ? `${Math.round(tempo.bpm)} BPM (Deezer): tap A/X on the beat to line missiles up exactly` : `${Math.round(tempo.bpm)} BPM${this.drops.length ? ' · drop ahead' : ''}`, 4000);
+    this.flash(tempo.source === 'default' ? 'Tempo is a guess: tap A/X (or T) on the beat to lock it' : tempo.source === 'lookup' ? `${Math.round(tempo.bpm)} BPM (${tempo.from}): tap A/X on the beat to line missiles up exactly` : `${Math.round(tempo.bpm)} BPM${this.drops.length ? ' · drop ahead' : ''}`, 4000);
   }
 
   _regen(fromMs = -1) {
@@ -787,7 +787,7 @@ export class Game {
     const dur = this.track ? this.track.duration_ms : 0;
     const mmss = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
     const dropTxt = this.drops.length ? `   drop: ${this.dropInfo.source}` : '';
-    g.fillText(`${mmss(Math.max(0, pos))} / ${mmss(dur)}   ${Math.round(this.tempo.bpm)} BPM${this.tempo.source === 'default' ? ' (guess)' : this.tempo.source === 'deezer' ? ' (Deezer)' : ''}${dropTxt}`, 32, 214);
+    g.fillText(`${mmss(Math.max(0, pos))} / ${mmss(dur)}   ${Math.round(this.tempo.bpm)} BPM${this.tempo.source === 'default' ? ' (guess)' : this.tempo.source === 'lookup' ? ` (${this.tempo.from})` : ''}${dropTxt}`, 32, 214);
     if (this.player && this.player.syncInfo) { g.save(); g.font = f(500, 18); g.fillStyle = 'rgba(255,255,255,0.55)'; g.fillText(this.player.syncInfo(), 32, 240); g.restore(); }
     g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(32, 250, W - 64, 6);
     g.fillStyle = '#00e5ff'; g.fillRect(32, 250, (W - 64) * Math.min(1, Math.max(0, pos / (dur || 1))), 6);
