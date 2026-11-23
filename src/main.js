@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtl07ru';
-import * as sp from './spotify-api.js?v=mwtl07ru';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtl07ru';
-import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtl07ru';
-import { Game } from './game.js?v=mwtl07ru';
-import { Pointers } from './ui3d.js?v=mwtl07ru';
-import { Menu } from './menu3d.js?v=mwtl07ru';
-import * as prof from './profile.js?v=mwtl07ru';
+import * as auth from './spotify-auth.js?v=mwtld9az';
+import * as sp from './spotify-api.js?v=mwtld9az';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtld9az';
+import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtld9az';
+import { Game } from './game.js?v=mwtld9az';
+import { Pointers } from './ui3d.js?v=mwtld9az';
+import { Menu } from './menu3d.js?v=mwtld9az';
+import * as prof from './profile.js?v=mwtld9az';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -119,11 +119,15 @@ function checkTrackEnd() {
 function wantedOutput() { return settings.output || ($('output') && $('output').value) || 'sdk'; }
 async function connectPlayer(preferId) {
   S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'BeatBrawler VR');
-  const d = S.devices.find((x) => x.id === preferId) || S.devices.find((x) => x.is_active) || S.devices[0];
-  if (!d) throw new Error('No Spotify device found: open the Spotify app on your phone, play any song for a second, then press FIGHT again');
+  // Prefer Spotify running on this Quest (the official Quest app plays in the background during VR),
+  // then whatever device is active, then anything.
+  const onQuest = (x) => /quest|oculus|meta/i.test(x.name || '');
+  const d = S.devices.find((x) => x.id === preferId) || S.devices.find(onQuest) || S.devices.find((x) => x.is_active) || S.devices[0];
+  if (!d) throw new Error('No Spotify device found: open the Spotify app on this Quest (free in the Horizon Store) or your phone, play any song for a second, then press FIGHT again');
   const p = new ConnectPlayer(d); await p.init(); return p;
 }
 let spotifyStarting = null;
+const onQuestDevice = (d) => !!d && /quest|oculus|meta/i.test(d.name || '');
 function ensureSpotify() {
   if (S.spotify) return Promise.resolve(S.spotify);
   spotifyStarting = spotifyStarting || (async () => {
@@ -135,7 +139,8 @@ function ensureSpotify() {
     } catch (e) {
       console.warn(e);
       // In-headset playback failed (e.g. no DRM in this browser): fall back to Spotify Connect.
-      try { S.spotify = await connectPlayer(''); S.spotifyError = `Playing on ${S.spotify.device.name} (Spotify can't play inside the headset here)`; }
+      try { S.spotify = await connectPlayer(''); S.headsetError = e.message;
+        S.spotifyError = onQuestDevice(S.spotify.device) ? '' : `Playing on ${S.spotify.device.name}. To hear it in the headset, open the Spotify app on this Quest, then AUDIO ▸ on the right panel`; }
       catch (e2) { S.spotifyError = want === 'sdk' ? `${e2.message}. (Spotify can't play inside the headset here: ${e.message})` : e2.message; throw new Error(S.spotifyError); }
     } finally { spotifyStarting = null; menu.refresh(); }
     return S.spotify;
@@ -205,6 +210,13 @@ async function startTrack(track) {
     game.flash('Connecting to Spotify…', 10000); menu.refresh();
     try { player = await ensureSpotify(); }
     catch (e) { game.flash(e.message, 8000); menu.show('select'); S.state = 'select'; menu.refresh(); return; }
+  }
+  // Playing on another device (e.g. a laptop)? If Spotify has since been opened on this Quest, move to it.
+  if (!isPractice(track) && player.device && !onQuestDevice(player.device)) {
+    try {
+      const q = (await sp.getDevices()).find((x) => onQuestDevice(x) && !x.is_restricted);
+      if (q) { player.dispose(); player = S.spotify = new ConnectPlayer(q); await player.init(); S.spotifyError = ''; game.flash(`Audio: ${q.name}`, 2500); }
+    } catch { /* keep the current device */ }
   }
   player.activate && player.activate();
   for (const p of [S.practice, S.spotify]) if (p && p !== player && p.playing) p.pause().catch(() => {});

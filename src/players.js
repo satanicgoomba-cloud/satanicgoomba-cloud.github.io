@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwtl07ru';
-import { getAccessToken } from './spotify-auth.js?v=mwtl07ru';
+import * as sp from './spotify-api.js?v=mwtld9az';
+import { getAccessToken } from './spotify-auth.js?v=mwtld9az';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -70,7 +70,7 @@ export class SdkPlayer {
     if (!s) return;
     this.lastState = s;
     const cur = s.track_window && s.track_window.current_track;
-    if (this.track && cur && cur.id && cur.id !== this.track.id && !(cur.linked_from && cur.linked_from.id === this.track.id)) return;
+    if (this.track && cur && !sameTrack(cur, this.track)) return;
     let at = performance.now();
     if (s.timestamp && !s.paused) {
       const age = Date.now() - s.timestamp;
@@ -100,6 +100,14 @@ export class SdkPlayer {
   dispose() { clearInterval(this._poll); if (this.player) this.player.disconnect(); }
 }
 
+/** Spotify may play a relinked copy of a song (different id, same song), so match generously. */
+export function sameTrack(item, track) {
+  if (!item || !track) return false;
+  return item.id === track.id || item.uri === track.uri
+    || (item.linked_from && (item.linked_from.id === track.id || item.linked_from.uri === track.uri))
+    || (item.name === track.name && Math.abs((item.duration_ms || 0) - (track.duration_ms || 0)) < 3000);
+}
+
 /* ---------------- Spotify Connect (audio plays on your phone / speaker / desktop app) ---------------- */
 export class ConnectPlayer {
   constructor(device) { this.device = device; this.name = `Spotify Connect: ${device.name}`; this.clock = new Clock(); this.track = null; }
@@ -113,15 +121,20 @@ export class ConnectPlayer {
     try { s = await sp.getPlaybackState(); } catch { return; }
     const recv = performance.now();
     if (!s || !s.item) return;
-    if (this.track && s.item.id !== this.track.id) return;
+    if (this.track && !sameTrack(s.item, this.track)) return;
     // Assume the server sampled the position half-way through the round trip.
     this.clock.sync(s.progress_ms, s.is_playing, (sent + recv) / 2);
+    this.lastSync = performance.now();
   }
   async play(track) {
     this.track = track;
     this.clock.sync(0, false);
     await sp.playTrack(track.uri, this.device.id, 0);
+    // Spotify accepted the play: start the clock now (≈ when the device starts) and let polls refine it,
+    // so the fight never waits on a slow or mismatched status report.
+    this.clock.sync(0, true, performance.now() - 150);
     setTimeout(() => this._refresh(), 400);
+    setTimeout(() => this._refresh(), 1200);
   }
   async pause() { await sp.pause(this.device.id); this.clock.sync(this.clock.now(), false); }
   async resume() { await sp.resume(this.device.id); setTimeout(() => this._refresh(), 400); }
