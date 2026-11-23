@@ -1,7 +1,7 @@
 {
-  "name": "BeatBrawler VR",
-  "short_name": "BeatBrawler",
-  "description": "Box the missiles to the beat. Your Liked Songs are the playlist.",
+  "name": "SpotiSaber",
+  "short_name": "SpotiSaber",
+  "description": "Slice the beat with two sabers. Your Spotify songs are the levels.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

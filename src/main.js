@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtolxab';
-import * as sp from './spotify-api.js?v=mwtolxab';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtolxab';
+import * as auth from './spotify-auth.js?v=mwtthjow';
+import * as sp from './spotify-api.js?v=mwtthjow';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtthjow';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtolxab';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtolxab';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtolxab';
-import { Game } from './game.js?v=mwtolxab';
-import { Pointers } from './ui3d.js?v=mwtolxab';
-import { Menu } from './menu3d.js?v=mwtolxab';
-import * as prof from './profile.js?v=mwtolxab';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtthjow';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtthjow';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtthjow';
+import { Game } from './game.js?v=mwtthjow';
+import { Pointers } from './ui3d.js?v=mwtthjow';
+import { Menu } from './menu3d.js?v=mwtthjow';
+import * as prof from './profile.js?v=mwtthjow';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -152,12 +152,12 @@ function runSearch(q, now) {
 // a device id = Spotify Connect (Spotify app on your phone/computer/speaker plays, the game follows it).
 function wantedOutput() { return settings.output || ($('output') && $('output').value) || 'sdk'; }
 async function connectPlayer(preferId) {
-  S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'BeatBrawler VR');
+  S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'SpotiSaber');
   // Prefer Spotify running on this Quest (the official Quest app plays in the background during VR),
   // then whatever device is active, then anything.
   const onQuest = (x) => /quest|oculus|meta/i.test(x.name || '');
   const d = S.devices.find((x) => x.id === preferId) || S.devices.find(onQuest) || S.devices.find((x) => x.is_active) || S.devices[0];
-  if (!d) throw new Error('No Spotify device found: open the Spotify app on this Quest (free in the Horizon Store) or your phone, play any song for a second, then press FIGHT again');
+  if (!d) throw new Error('No Spotify device found: open the Spotify app on this Quest (free in the Horizon Store) or your phone, play any song for a second, then press PLAY again');
   const p = new ConnectPlayer(d); await p.init(); return p;
 }
 let spotifyStarting = null;
@@ -183,7 +183,7 @@ function ensureSpotify() {
   return spotifyStarting;
 }
 async function cycleOutput() { // in-headset -> each Connect device -> in-headset …
-  try { S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'BeatBrawler VR'); } catch { /* keep old list */ }
+  try { S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'SpotiSaber'); } catch { /* keep old list */ }
   const opts = ['sdk', ...S.devices.map((d) => d.id)];
   const cur = S.spotify && S.spotify.device ? S.spotify.device.id : wantedOutput();
   switchOutput(opts[(opts.indexOf(cur) + 1) % opts.length]);
@@ -200,7 +200,7 @@ function switchOutput(next) { // VR corner panel / start page: change where Spot
 async function enterGame() {
   // Called from a click, so audio can be unlocked here.
   await S.practice.init(); S.practice.activate();
-  if (auth.isLoggedIn() && !S.spotify) ensureSpotify().catch(() => {}); // also retried on FIGHT
+  if (auth.isLoggedIn() && !S.spotify) ensureSpotify().catch(() => {}); // also retried on PLAY
   else if (S.spotify) S.spotify.activate();
   game.latencyMs = settings.latency || 0;
   $('menu').hidden = true; $('profile').hidden = true;
@@ -302,7 +302,7 @@ function finishTrack(ended, skipToNext = false) {
   const synced = learnSync(track, r.errs);
   if (skipToNext) { startNext(); return; }
   if (S.player && S.player.playing) S.player.pause().catch(() => {});
-  S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, supers: r.supers, isBest, synced };
+  S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, mines: r.mines, isBest, synced };
   game.stop(); S.state = 'results';
   S.nextAt = settings.autoplay !== false && S.queue.length > 1 ? performance.now() + 6000 : 0;
   menu.show('results');
@@ -411,8 +411,7 @@ canvas.addEventListener('pointermove', (e) => {
   canvas.style.cursor = pointers.desktopHit && pointers.desktopHit.id ? 'pointer' : S.state === 'play' ? 'crosshair' : 'default';
 });
 canvas.addEventListener('pointerdown', (e) => {
-  if (S.state === 'play') game.desktopPunch(e.button === 2 ? 'R' : 'L');
-  else pointers.desktopClick();
+  if (S.state !== 'play') pointers.desktopClick();
 });
 canvas.addEventListener('wheel', (e) => { pointers.desktopWheel(Math.sign(e.deltaY) * 1.5); }, { passive: true });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -423,16 +422,11 @@ addEventListener('keydown', (e) => {
   if (e.key === 'Escape') { if (S.state === 'play') pause(); else if (S.state === 'pause') resume(); else exitToLobby(); return; }
   if (S.state !== 'play' || e.repeat) return;
   const k = e.key.toLowerCase();
-  if (k === 'd') game.desktopPunch('L');
-  else if (k === 'k') game.desktopPunch('R');
-  else if (k === ' ') { e.preventDefault(); game.desktopCharge(true); }
-  else if (k === 'f') game.tryFocus();
-  else if (k === 't') tapTempo();
+  if (k === 't') tapTempo();
   else if (k === 'n') finishTrack(false, true);
   else if (k === '[') nudge(-10);
   else if (k === ']') nudge(10);
 });
-addEventListener('keyup', (e) => { if (e.key === ' ') game.desktopCharge(false); });
 
 /* ---------------- lobby options ---------------- */
 $('difficulty').value = settings.difficulty || 'normal';
@@ -485,7 +479,7 @@ $('output').onchange = () => { if (S.spotify) { S.spotify.dispose(); S.spotify =
 
 async function refreshDevices() {
   try {
-    S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'BeatBrawler VR');
+    S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'SpotiSaber');
     const sel = $('output'), cur = sel.value;
     sel.innerHTML = '<option value="sdk">This headset/browser (Web Playback SDK)</option>' +
       S.devices.map((d) => `<option value="${escapeHtml(d.id)}">Spotify Connect: ${escapeHtml(d.name)} (${escapeHtml(d.type)})</option>`).join('');
@@ -540,7 +534,7 @@ function renderProfile() {
     <div class="stats"><div><b>${sum.totalScore.toLocaleString()}</b><span>TOTAL SCORE</span></div><div><b>${sum.bestCombo}</b><span>BEST COMBO</span></div><div><b>${sum.accuracy}%</b><span>ACCURACY</span></div></div>
     <div class="plist"><h3>HIGH SCORES</h3><ol>${rows(sum.highScores, (t) => t.score.toLocaleString())}</ol>
     <h3>MOST PLAYED</h3><ol>${rows(sum.topPlayed, (t) => `${t.plays}×`)}</ol></div>
-    <p class="small muted">${sum.games} rounds · ${sum.supers} super punches</p></div>`;
+    <p class="small muted">${sum.games} rounds</p></div>`;
 }
 $('openProfile').onclick = () => { renderProfile(); $('profile').hidden = false; $('menu').hidden = true; $('shareStatus').textContent = ''; };
 $('closeProfile').onclick = () => { $('profile').hidden = true; $('menu').hidden = false; };
@@ -584,7 +578,7 @@ addEventListener('hashchange', checkHashLogin); // the app may already be open w
 
 /* ---------------- login hand-back (browser tab -> Quest app) ---------------- */
 function showHandoff(h) {
-  const app = h.pkg === auth.IMMERSIVE_PKG ? 'BeatBrawler' : 'BB Setup';
+  const app = h.pkg === auth.IMMERSIVE_PKG ? 'the game' : 'BB Setup';
   const msg = h.error ? `Spotify login was cancelled (${escapeHtml(h.error)}).`
     : h.finished ? 'You\'re logged in to Spotify.' : 'Almost done: the app finishes the login.';
   $('menu').hidden = false;

@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwtolxab';
-import { getAccessToken } from './spotify-auth.js?v=mwtolxab';
+import * as sp from './spotify-api.js?v=mwtthjow';
+import { getAccessToken } from './spotify-auth.js?v=mwtthjow';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -43,7 +43,7 @@ export class SdkPlayer {
   async init() {
     await loadSdk();
     this.player = new window.Spotify.Player({
-      name: 'BeatBrawler VR',
+      name: 'SpotiSaber',
       getOAuthToken: (cb) => getAccessToken().then(cb).catch(() => cb('')),
       volume: 0.8,
     });
@@ -194,7 +194,7 @@ export class ConnectPlayer {
 const practice = (id, name, bpm, art) => {
   const bar = (60000 / bpm) * 4;
   const sec = (b0, b1, kind, energy) => ({ t0: b0 * bar, t1: b1 * bar, kind, energy });
-  return { id, uri: '', name, artist: 'BeatBrawler practice', bpm, offsetMs: 0, duration_ms: Math.round(bar * 32 + 1500), art,
+  return { id, uri: '', name, artist: 'SpotiSaber practice', bpm, offsetMs: 0, duration_ms: Math.round(bar * 32 + 1500), art,
     sections: [sec(0, 4, 'intro', 0.3), sec(4, 12, 'verse', 0.6), sec(12, 16, 'pre', 0.35), sec(16, 28, 'chorus', 1), sec(28, 33, 'outro', 0.3)] };
 };
 export const PRACTICE_TRACKS = [

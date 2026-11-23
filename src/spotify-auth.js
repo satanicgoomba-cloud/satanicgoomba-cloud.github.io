@@ -43,7 +43,7 @@ export function loginCode() {
 }
 export function importLoginCode(code) {
   const m = /BB1\.([A-Za-z0-9_-]+)/.exec(String(code || ''));
-  if (!m) throw new Error('That isn\'t a BeatBrawler login code.');
+  if (!m) throw new Error('That isn\'t a SpotiSaber login code.');
   let d;
   try { d = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')), (ch) => ch.charCodeAt(0)))); }
   catch { throw new Error('That login code is damaged: copy it again.'); }

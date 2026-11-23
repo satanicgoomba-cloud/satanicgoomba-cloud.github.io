@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtolxab';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtthjow';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -192,7 +192,7 @@ export class Menu {
     const W = p.W, t = this.selected();
     const s = this.api.settings();
     g.textAlign = 'center'; g.textBaseline = 'top';
-    g.fillStyle = C.cyan; g.font = FONT(800, 22); g.fillText('FIGHT CARD', W / 2, 26);
+    g.fillStyle = C.cyan; g.font = FONT(800, 22); g.fillText('SONG CARD', W / 2, 26);
     if (t) {
       const im = art(t.art, () => p.redraw());
       const A = 250, ax = (W - A) / 2, ay = 66;
@@ -217,13 +217,13 @@ export class Menu {
         lines.slice(0, 2).forEach((l, i) => g.fillText(i === 1 && lines.length > 2 ? fitText(g, l + ' ' + lines.slice(2).join(' '), W - 50) : l, W / 2, 470 + i * 21));
       }
     }
-    const diffs = ['easy', 'normal', 'hard'];
-    const bw = (W - 80) / 3;
-    diffs.forEach((d, i) => p.button(`diff:${d}`, 30 + i * (bw + 10), 516, bw, 64, d.toUpperCase(), { selected: s.difficulty === d, size: 24 }));
+    const diffs = ['easy', 'normal', 'hard', 'extreme', 'maniac'];
+    const bw = (W - 60 - 4 * 8) / 5;
+    diffs.forEach((d, i) => p.button(`diff:${d}`, 30 + i * (bw + 8), 516, bw, 64, d.toUpperCase(), { selected: s.difficulty === d, size: 17 }));
     p.button('autoplay', 30, 596, (W - 70) / 2, 56, `AUTOPLAY ${s.autoplay !== false ? 'ON' : 'OFF'}`, { selected: s.autoplay !== false, size: 20 });
     p.button('shuffle', 40 + (W - 70) / 2, 596, (W - 70) / 2, 56, `SHUFFLE ${s.shuffle ? 'ON' : 'OFF'}`, { selected: !!s.shuffle, size: 20 });
     const busy = this.api.loading && this.api.loading();
-    p.button('fight', 30, 676, W - 60, 110, busy || (t ? 'FIGHT!' : 'PICK A SONG'), { style: 'primary', size: busy ? 30 : 44, color: busy ? '#8a5cff' : undefined });
+    p.button('fight', 30, 676, W - 60, 110, busy || (t ? 'PLAY!' : 'PICK A SONG'), { style: 'primary', size: busy ? 30 : 44, color: busy ? '#8a5cff' : undefined });
   }
 
   _clickCard(id) {
@@ -264,8 +264,8 @@ export class Menu {
     p.button('exit', 30, 600, W - 60, 56, this.api.inVR() ? 'EXIT VR' : 'BACK TO LOBBY', { size: 20 });
     g.fillStyle = C.muted; g.font = FONT(500, 17); g.textAlign = 'left';
     const help = this.api.inVR()
-      ? ['Trigger or pinch: select · Stick: scroll', 'Pause: B/Y, Meta button, or tap left wrist', 'A/X: tap the beat to line missiles up', 'Both grips + punch: Super Punch', 'Both triggers: Focus (controllers)']
-      : ['Click: select · Wheel: scroll', 'In game: T tap tempo · Esc pause', '[ ] nudge the beat', 'Hold Space: Super Punch', 'F: Focus · D/K or clicks: punch'];
+      ? ['Trigger or pinch: select · Stick: scroll', 'Slice pink cubes with the left saber, blue with the right', 'Swing the way the arrow points · dots: any way', 'Keep sabers off mines · duck and lean past walls', 'Pause: B/Y, Meta button, or tap left wrist · A/X: tap the beat']
+      : ['Click: select · Wheel: scroll', 'In game: move the mouse to swing the saber', 'T tap tempo · [ ] nudge the beat', 'Esc pause · N next song', 'Add ?bot=1 to the address to watch a bot play'];
     help.forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
     g.textAlign = 'right'; g.fillStyle = 'rgba(244,240,255,0.35)'; g.font = FONT(500, 15); g.fillText(`build ${this.api.build()}`, W - 24, 26);
   }
@@ -283,7 +283,7 @@ export class Menu {
       '3. Enter your Client ID (first time) and',
       '   tap  Log in with Spotify  (Google and',
       '   Facebook work there).',
-      '4. Tap  Open BeatBrawler with this login',
+      '4. Tap  Open the game with this login',
       '   - or tap  Copy login code, come back',
       '   here and press PASTE LOGIN CODE.',
     ];
@@ -331,7 +331,7 @@ export class Menu {
     g.fillStyle = C.text; g.font = FONT(900, 52); g.fillText(r.score.toLocaleString(), W / 2, 206);
     if (r.isBest) { g.fillStyle = C.gold; g.font = FONT(800, 22); g.fillText('NEW PERSONAL BEST', W / 2, 266); }
     else if (r.synced) { g.fillStyle = C.muted; g.font = FONT(600, 18); g.fillText(`Beat sync for this song adjusted ${r.synced > 0 ? '+' : ''}${r.synced} ms for next time`, W / 2, 270); }
-    const stats = [['ACCURACY', `${r.accuracy}%`], ['MAX COMBO', r.maxCombo], ['PERFECTS', r.perfects], ['SUPERS', r.supers]];
+    const stats = [['ACCURACY', `${r.accuracy}%`], ['MAX COMBO', r.maxCombo], ['PERFECTS', r.perfects], ['MINES HIT', r.mines || 0]];
     const cw = (W - 60) / 4;
     stats.forEach(([k, v], i) => {
       const x = 30 + i * cw + cw / 2;

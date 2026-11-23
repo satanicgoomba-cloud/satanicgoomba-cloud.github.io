@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>BeatBrawler VR</title>
-  <link rel="stylesheet" href="style.css?v=mwtolxab" />
+  <title>SpotiSaber</title>
+  <link rel="stylesheet" href="style.css?v=mwtthjow" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <meta name="theme-color" content="#100722" />
   <script>window.BB_CONFIG = {};</script>
-  <script src="config.js?v=mwtolxab" onerror="void 0"></script>
+  <script src="config.js?v=mwtthjow" onerror="void 0"></script>
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }
   </script>
@@ -18,8 +18,8 @@
   <div id="menu" class="overlay">
     <div class="panel">
       <header class="brand">
-        <h1>BEAT<span>BRAWLER</span> VR</h1>
-        <p class="tag">Box the missiles to the beat. Your Liked Songs are the playlist.</p>
+        <h1>SPOTI<span>SABER</span></h1>
+        <p class="tag">Slice the beat with two sabers. Your Spotify songs are the levels.</p>
       </header>
 
       <section id="setup" hidden>
@@ -64,7 +64,7 @@
           <p class="small"><b>Quest app:</b> hand this login to the installed app (it stays on this headset):</p>
           <div class="actions">
             <a class="big" id="sendWindow" href="#">Open BB Setup with this login</a>
-            <a class="big alt" id="sendImmersive" href="#">Open BeatBrawler with this login</a>
+            <a class="big alt" id="sendImmersive" href="#">Open the game with this login</a>
           </div>
           <p class="small muted">Or <button id="copyCode" class="link" type="button">copy login code</button> and paste it in the app. Treat the code like a password: don't share it.</p>
         </div>
@@ -73,7 +73,7 @@
       <section id="options">
         <div class="grid2">
           <label class="field">Difficulty
-            <select id="difficulty"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select>
+            <select id="difficulty"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option><option value="extreme">Extreme</option><option value="maniac">Maniac</option></select>
           </label>
           <label class="field">Audio latency <span id="latVal">0 ms</span>
             <input id="latency" type="range" min="-200" max="400" step="10" value="0" />
@@ -94,8 +94,8 @@
       <details class="small help">
         <summary>Controls</summary>
         <p><b>Menus (VR):</b> point with the laser from either glove and pull the <b>trigger</b> to select. Use the thumbstick to scroll the song wall.</p>
-        <p><b>Fight (VR):</b> punch missiles as they reach the ring in front of you: pink with the left glove, blue with the right. Missiles follow the song: calm in intros and slow-downs, busiest in choruses (the arena lights up gold). Fill the meter, then <b>hold both grips</b> and punch for a <b>Super Punch</b>, or squeeze <b>both triggers</b> for <b>Focus</b>. <b>A/X</b>: tap the beat to line the missiles up exactly. <b>Pause</b>: B/Y, the Meta button, or turn your left wrist toward you and tap the pause button on it with your right glove. Works with controllers or bare hands (hand tracking); Super Punch and Focus need controllers.</p>
-        <p><b>Screen:</b> click menus with the mouse. In a fight, aim with the mouse and left/right click (or D/K) to punch. Space: Super Punch (hold, release). F: Focus. T: tap tempo. [ and ]: nudge the beat. N: next song. Esc: pause.</p>
+        <p><b>Play (VR):</b> cubes ride the track toward you. Slice pink cubes with the left saber and blue cubes with the right, swinging the way the arrow points (dots: any way). Bigger, centred swings score more. Keep your sabers off the spiky <b>mines</b>, and duck or lean so your head misses the <b>walls</b>. Cubes follow the song: calmer in intros and slow-downs, busiest in choruses (the arena lights up gold). Five difficulties, Easy to Maniac: harder means more cubes and faster cubes. <b>A/X</b>: tap the beat to line the cubes up exactly. <b>Pause</b>: B/Y, the Meta button, or turn your left wrist toward you and tap the pause button on it with your right hand. Works with controllers or bare hands (hand tracking).</p>
+        <p><b>Screen:</b> click menus with the mouse. In a song, move the mouse to swing the saber that matches the next cube. T: tap tempo. [ and ]: nudge the beat. N: next song. Esc: pause. Walls can't hit you on a screen.</p>
       </details>
     </div>
   </div>
@@ -114,7 +114,7 @@
     </div>
   </div>
 
-  <div id="hudHint" class="hint" hidden>Esc: pause · Click/D/K: punch · Space: super · F: focus · T: tap tempo</div>
-  <script type="module" src="src/main.js?v=mwtolxab"></script>
+  <div id="hudHint" class="hint" hidden>Esc: pause · Move the mouse to slice · T: tap tempo</div>
+  <script type="module" src="src/main.js?v=mwtthjow"></script>
 </body>
 </html>

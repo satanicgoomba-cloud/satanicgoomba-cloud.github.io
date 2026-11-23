@@ -35,7 +35,7 @@ export function clearStats() { localStorage.removeItem(STATS); }
 export function summary(profile, stats = loadStats()) {
   const list = Object.values(stats.tracks);
   return {
-    name: (profile && profile.name) || 'Guest Brawler',
+    name: (profile && profile.name) || 'Guest Saber',
     avatar: (profile && profile.avatar) || '',
     games: stats.games,
     totalScore: stats.totalScore,
@@ -67,7 +67,7 @@ export function decodeShare(str) {
   const p = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0))));
   const okAvatar = typeof p.a === 'string' && /^https:\/\/([a-z0-9-]+\.)*(scdn\.co|spotifycdn\.com|fbcdn\.net)\//i.test(p.a);
   return {
-    name: String(p.n || 'Brawler'), avatar: okAvatar ? p.a : '', games: +p.g || 0, totalScore: +p.s || 0,
+    name: String(p.n || 'Player'), avatar: okAvatar ? p.a : '', games: +p.g || 0, totalScore: +p.s || 0,
     bestCombo: +p.c || 0, accuracy: +p.x || 0,
     highScores: (p.h || []).map(([name, artist, score]) => ({ name: String(name), artist: String(artist), score: +score || 0 })),
     topPlayed: (p.p || []).map(([name, artist, plays]) => ({ name: String(name), artist: String(artist), plays: +plays || 0 })),
@@ -131,7 +131,7 @@ export async function drawCard(sum, canvas = document.createElement('canvas')) {
   list(830, 'HIGH SCORES', sum.highScores, (t) => t.score.toLocaleString());
   list(1080, 'MOST PLAYED', sum.topPlayed, (t) => `${t.plays}×`);
   g.textAlign = 'center'; g.fillStyle = 'rgba(255,255,255,0.45)'; g.font = font(500, 22);
-  g.fillText(`${sum.games} rounds · ${sum.supers} super punches`, W / 2, H - 40);
+  g.fillText(`${sum.games} rounds`, W / 2, H - 40);
   return canvas;
 }
 
@@ -142,7 +142,7 @@ export async function shareCard(sum) {
   if (!blob) throw new Error('Could not render the card (avatar image blocked).');
   const file = new File([blob], 'beatbrawler-profile.png', { type: 'image/png' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    await navigator.share({ files: [file], title: 'My BeatBrawler VR profile', url: shareUrl(sum) });
+    await navigator.share({ files: [file], title: 'My SpotiSaber profile', url: shareUrl(sum) });
     return 'shared';
   }
   const a = document.createElement('a');

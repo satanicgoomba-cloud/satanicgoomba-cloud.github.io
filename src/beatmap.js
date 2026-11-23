@@ -1,4 +1,4 @@
-import { cachedInfo } from './bpm.js?v=mwtolxab';
+import { cachedInfo } from './bpm.js?v=mwtthjow';
 // Beat maps without audio analysis.
 // Spotify's /audio-features and /audio-analysis are closed to new apps (Nov 2024), and the
 // page can't read Spotify's audio, so a map is: tempo (BPM + phase) + song sections -> seeded
@@ -73,94 +73,153 @@ export function sectionAt(sections, t) {
   return null;
 }
 
-/* ---------------- patterns ---------------- */
-// 8 eighth-note slots per bar. L/R = hand, B = both hands, . = rest.
-const PATTERNS = {
-  easy: ['L...R...', 'L.......', 'L...L...', 'R...R...', 'B.......', 'R...L...'],
-  normal: ['L.R.L.R.', 'L...R.R.', 'L.L.R...', 'B...L.R.', 'L.R...B.', 'R.L.R.L.', 'L...R...', 'L.R.B...'],
-  hard: ['LRL.R.L.', 'L.RLR...', 'LRLRB...', 'L.R.LRL.', 'B.LR.RL.', 'LR.RL.B.', 'L.R.L.R.', 'RL.LR.B.'],
-};
-const HARDER = { easy: 'normal', normal: 'hard', hard: 'hard' };
-// Calm parts (intro, pre-chorus slow-downs, outro): half-time hits on beats 1 and 3, or just one per bar.
-const CALM = ['L...R...', 'R...L...', 'L...L...', 'B.......'];
-const SPARSE = ['L.......', 'R.......'];
+/* ---------------- slicing maps ---------------- */
+// A 4 x 3 grid in front of you: columns 0..3 (left to right), rows 0..2 (bottom to top).
+// The left saber keeps to columns 0-1 and the right saber to 2-3, so the sabers never cross.
+// dir = the way to swing through the cube: D, U, DL, DR, UL, UR, or A (any way).
+export const DIFFICULTIES = ['easy', 'normal', 'hard', 'extreme', 'maniac'];
+const DIFF_STEP = { easy: -1, normal: 0, hard: 1, extreme: 2, maniac: 3 };
+/** Cube speed (metres per second) for each difficulty. */
+export const SPEED = { easy: 8, normal: 10, hard: 12, extreme: 14, maniac: 16 };
 
-// Formations decide which direction each missile flies in from (degrees; az 0 = straight ahead,
-// negative = left; el = up). Scaled down by `spread` for flat screens.
-// Every missile comes from in front of you (within about ±22° left/right, -15..25° up/down), so
-// nothing arrives from where you can't see it. Variety comes from height, sweeps and cross-body punches.
-const FORMATIONS = ['front', 'high', 'sweep', 'front', 'low', 'sweep', 'high', 'front'];
-// Each glove keeps to its own side (left missiles on the left, right on the right) and never closer than
-// MIN_AZ to the middle, so hands don't cross or bump. Missiles for both fists at once are kept wider apart.
-const MIN_AZ = 9, MIN_AZ_BOTH = 14;
-function direction(form, hand, i, r, both) {
-  const s = hand === 'L' ? -1 : 1;
-  const j = (a, b) => a + r() * (b - a);
-  let d;
-  switch (form) {
-    case 'high': d = { az: j(8, 18), el: j(16, 25) }; break;   // uppercut height
-    case 'low': d = { az: j(8, 18), el: j(-15, -6) }; break;   // body shots
-    case 'sweep': { const k = i / 7; d = { az: 6 + 16 * (hand === 'L' ? 1 - k : k), el: j(0, 12) }; break; }
-    default: d = { az: j(9, 22), el: j(-5, 12) };
-  }
-  d.az = s * Math.max(both ? MIN_AZ_BOTH : MIN_AZ, d.az);
-  return d;
-}
-export const MAX_AZ = 22;
+// Density levels: how many slots of each bar (8 eighth-note slots) get a cube.
+//  0 sparse: one per bar · 1 calm: every 2 beats · 2 steady: every beat · 3 busy: every beat plus
+//  some off-beats · 4 hard: off-beats half the time · 5 extreme: every eighth · 6 maniac: every
+//  eighth plus doubles and quick bursts.
+const LEVELS = [
+  ['x.......'],
+  ['x...x...'],
+  ['x.x.x.x.'],
+  ['x.x.x.xx', 'x.xxx.x.', 'x.x.x.x.'],
+  ['x.xxx.xx', 'xxx.x.xx', 'x.xxxxx.'],
+  ['xxxxxxxx', 'xxxxxx.x', 'xxx.xxxx'],
+  ['xxxxxxxx'],
+];
+
+function levelFor(e) { return e < 0.2 ? 0 : e < 0.4 ? 1 : e < 0.62 ? 2 : e < 0.8 ? 3 : 4; }
 
 /**
- * Missiles for a song. Busier where the song has more energy (choruses), calmer in intros and
- * slow-downs, and silent where the music drops out. Placed on the song's real beats when a source
- * has them (handles tempo changes), otherwise on a steady grid. Same inputs = same fight every time.
- * @returns {{ notes: Array<{id,t,hand,az,el,strong}> }}
+ * Cubes, mines and walls for a song. Busier where the song has more energy, calmer in intros and
+ * slow-downs, but never empty for long: even the quietest part keeps one cube per bar, and breather
+ * bars get a wall to dodge instead. Placed on the song's real beats when a source has them, otherwise
+ * on a steady grid. Same inputs = same map every time.
+ * @returns {{ items: Array<{id,t,type:'note'|'mine'|'wall',hand?,col?,row?,dir?,dur?,kind?}>, notes:number }}
  */
-export function generate(track, tempo, difficulty = 'normal', { spread = 1, sections = [], beats = null, shiftMs = 0 } = {}) {
-  const r = rng(`${track.id}:${difficulty}:${tempo.bpm.toFixed(2)}`);
+export function generate(track, tempo, difficulty = 'normal', { sections = [], beats = null, shiftMs = 0 } = {}) {
+  const r = rng(`${track.id}:${difficulty}:${tempo.bpm.toFixed(2)}:saber`);
+  const step = DIFF_STEP[difficulty] ?? 0;
   const endMs = (track.duration_ms || 180000) - 2500;
-  // beat list: real beats if we have them, else the tempo grid
   let bt = beats && beats.length > 8 ? beats.filter((t) => t >= 2500 && t < endMs) : null;
   if (!bt) { const g = grid(tempo); bt = []; for (let t = g.t0; t < endMs; t += g.spb) bt.push(t); }
-  const energyAt = (t) => { const s = sectionAt(sections, t); return s ? s.energy : 0.6; };
+  // Energy relative to the song itself: a hyped song's "verses" are still hyped. Sources (lyrics gaps,
+  // osu! mappers' breaks) often call a loud part quiet, so the song's own median counts as steady.
+  const es = sections.map((s) => s.energy).filter((x) => x >= 0);
+  const med = es.length ? es.slice().sort((a, b) => a - b)[es.length >> 1] : 0.6;
+  const lift = Math.max(0, 0.62 - med);
+  const energyAt = (t) => { const s = sectionAt(sections, t); return Math.min(1, (s ? s.energy : 0.6) + lift); };
 
-  const notes = [];
-  let phrase = [], form = 'front', id = 0, prevE = 0.6;
-  const lastByHand = { L: -1e9, R: -1e9 };
+  const items = [];
+  let id = 0, notes = 0;
+  const hs = { L: { last: -1e9, up: false, col: 1 }, R: { last: -1e9, up: false, col: 2 } };
+  let nextHand = 'L', phraseCol = { L: 1, R: 2 }, wallSide = r() < 0.5 ? 'L' : 'R', prevLevel = -1;
+
+  const place = (t, hand, spb, forceDir, opt = {}) => {
+    const h = hs[hand];
+    if (t - h.last > spb * 4) h.up = false;          // after a rest, start with a downswing
+    const minGap = spb * (step >= 3 ? 0.24 : step >= 2 ? 0.49 : 0.74);
+    if (t - h.last < minGap) return false;
+    const out = hand === 'L' ? 'L' : 'R';            // outward diagonals only (no crossing)
+    let dir = forceDir || (h.up ? 'U' : 'D');
+    const roll = r();
+    if (!forceDir && roll < 0.28 && !opt.noDiag) dir += out;        // e.g. DL for the left saber
+    if (!forceDir && step <= -1 && r() < 0.3) dir = 'A';
+    const col = phraseCol[hand];
+    let row = dir[0] === 'D' ? (r() < 0.7 ? 0 : 1) : dir[0] === 'U' ? (r() < 0.55 ? 0 : r() < 0.7 ? 1 : 2) : 1;
+    if (opt.maxRow !== undefined) row = Math.min(row, opt.maxRow);
+    items.push({ id: id++, t: Math.round(t + shiftMs), type: 'note', hand, col, row, dir });
+    notes++;
+    h.up = dir === 'A' ? !h.up : dir[0] === 'D';     // the next swing comes back the other way
+    h.last = t;
+    return true;
+  };
+
   for (let b = 0, bar = 0; b + 4 <= bt.length; b += 4, bar++) {
     const beat = (k) => bt[b + k];
     const nextDown = b + 4 < bt.length ? bt[b + 4] : beat(3) + (beat(3) - beat(2));
+    const spb = (nextDown - beat(0)) / 4;
     const slot = (i) => (i % 2 === 0 ? beat(i / 2) : (beat((i - 1) / 2) + ((i - 1) / 2 + 1 < 4 ? beat((i - 1) / 2 + 1) : nextDown)) / 2);
-    const spb = (nextDown - beat(0)) / 4, eighth = spb / 2;
     const e = energyAt((beat(0) + nextDown) / 2);
-    if (bar % 4 === 0) {
-      const pool = PATTERNS[difficulty] || PATTERNS.normal;
-      phrase = [pool[Math.floor(r() * pool.length)], pool[Math.floor(r() * pool.length)]];
-      form = bar < 4 ? 'front' : FORMATIONS[Math.floor(r() * FORMATIONS.length)];
+    let level = Math.max(0, Math.min(6, levelFor(e) + step));
+    // very fast songs: eighth notes become too quick to swing; hold back one level above ~165 BPM
+    if (60000 / spb > 165 && level >= 4) level--;
+    if (bar % 2 === 0) { // new phrase: the sabers move to new columns now and then
+      phraseCol = { L: r() < 0.6 ? 1 : 0, R: r() < 0.6 ? 2 : 3 };
     }
-    if (e < 0.15) { prevE = e; continue; }                 // the music has dropped out: no missiles
-    if (bar % 16 === 15 && e < 0.8) continue;             // breather bar (never in a chorus)
-    let pat;
-    if (e < 0.3) pat = SPARSE[bar % 2];
-    else if (e < 0.45) pat = CALM[(bar >> 1) % CALM.length];
-    else if (e < 0.8) pat = phrase[bar % 2];
-    else { const hard = PATTERNS[HARDER[difficulty]]; pat = hard[(bar * 3 + Math.floor(r() * 2)) % hard.length]; }
-    if (e >= 0.8 && prevE < 0.8) pat = 'B' + pat.slice(1); // hit the chorus with both fists
-    prevE = e;
-    const hot = e >= 0.8;
-    const minGap = (hot || difficulty === 'hard') ? eighth * 0.99 : spb * 0.49;
+
+    // breather bar (never in the busiest parts): a wall to dodge instead of cubes
+    if (bar % 16 === 15 && e < 0.8 && bar > 4) {
+      const kind = step >= 1 && r() < 0.5 ? 'top' : (wallSide = wallSide === 'L' ? 'R' : 'L');
+      items.push({ id: id++, t: Math.round(beat(1) + shiftMs), type: 'wall', kind, dur: Math.round(spb * 2) });
+      continue;
+    }
+    // quiet stretches: a side wall alongside the one cube per bar, on alternate bars
+    if (level === 0 && bar % 4 === 2 && step >= 0) {
+      wallSide = wallSide === 'L' ? 'R' : 'L';
+      items.push({ id: id++, t: Math.round(beat(1) + shiftMs), type: 'wall', kind: wallSide, dur: Math.round(spb * 2) });
+      const hand = wallSide === 'L' ? 'R' : 'L';     // the cube is on the open side
+      place(beat(0), hand, spb);
+      continue;
+    }
+
+    // every 8 bars: a wall that runs alongside the cubes. Side walls: lean away, and only the saber on
+    // the open side has cubes. Low walls (Hard and up): duck, and the cubes stay on the bottom row.
+    let feature = null;
+    if (bar % 8 === 5 && bar > 4 && step >= 0 && level >= 1) {
+      feature = step >= 1 && (bar >> 3) % 3 === 2 ? 'top' : (wallSide = wallSide === 'L' ? 'R' : 'L');
+      items.push({ id: id++, t: Math.round(beat(0) + shiftMs), type: 'wall', kind: feature, dur: Math.round(spb * 4) });
+      if (feature !== 'top') level = Math.min(level, 3);
+    }
+    const open = feature === 'L' ? 'R' : feature === 'R' ? 'L' : null;
+    const opt = feature === 'top' ? { maxRow: 0 } : {};
+    const barStart = items.length;
+
+    const pats = LEVELS[level];
+    const pat = pats[Math.floor(r() * pats.length)];
+    const chorusHit = level >= 3 && prevLevel >= 0 && prevLevel < 3;
+    prevLevel = level;
     for (let i = 0; i < 8; i++) {
-      const c = pat[i];
-      if (c === '.' || !c) continue;
-      const t = Math.round(slot(i) + shiftMs);
+      if (pat[i] !== 'x') continue;
+      const t = slot(i);
       if (t > endMs) continue;
-      const both = c === 'B';
-      const hands = both ? ['L', 'R'] : [c];
-      for (const hand of hands) {
-        if (t - lastByHand[hand] < minGap) continue;
-        lastByHand[hand] = t;
-        const d = direction(hot && form === 'front' ? 'sweep' : form, hand, i, r, both);
-        notes.push({ id: id++, t, hand, az: d.az * spread, el: d.el * Math.min(1, spread * 1.4), strong: i === 0 });
+      // doubles: both sabers at once on the bar's first beat when the song steps up, and on maniac
+      const dbl = i === 0 && (chorusHit || (level >= 5 && bar % 2 === 0) || (level >= 3 && bar % 8 === 0));
+      if (open) { place(t, open, spb, null, opt); continue; }
+      if (dbl && t - hs.L.last > spb * 0.9 && t - hs.R.last > spb * 0.9) {
+        const dir = hs.L.up || hs.R.up ? 'U' : 'D';
+        place(t, 'L', spb, dir, opt); place(t, 'R', spb, dir, opt);
+        continue;
+      }
+      if (!place(t, nextHand, spb, null, opt)) { const o = nextHand === 'L' ? 'R' : 'L'; if (place(t, o, spb, null, opt)) nextHand = o; }
+      nextHand = nextHand === 'L' ? 'R' : 'L';
+      // maniac bursts: a quick same-saber flick back on the sixteenth (only if the song isn't fast)
+      if (level >= 6 && i % 4 === 3 && spb > 430 && r() < 0.35) place(t + spb / 4, nextHand === 'L' ? 'R' : 'L', spb, null, opt);
+    }
+    // mines: top row of the column a saber isn't using this phrase, between beats, and only where
+    // that saber's nearby swings are straight up/down and low (so a clean swing never touches it)
+    if (step >= 0 && !feature && r() < 0.3 + step * 0.06) {
+      const bars = items.slice(barStart).filter((x) => x.type === 'note');
+      const sides = r() < 0.5 ? ['L', 'R'] : ['R', 'L'];
+      for (const hand of sides) {
+        const col = hand === 'L' ? (phraseCol.L === 1 ? 0 : 1) : (phraseCol.R === 2 ? 3 : 2);
+        const t = slot(r() < 0.5 ? 3 : 7);
+        const near = bars.filter((x) => x.hand === hand && Math.abs(x.t - shiftMs - t) < spb * 1.1);
+        if (near.some((x) => x.dir.length > 1 || x.row >= 2 || x.col === col)) continue;
+        if (items.some((x) => x.type === 'note' && Math.abs(x.t - shiftMs - t) < spb * 0.3)) continue;
+        items.push({ id: id++, t: Math.round(t + shiftMs), type: 'mine', col, row: 2 });
+        break;
       }
     }
   }
-  return { notes };
+  items.sort((a, b) => a.t - b.t);
+  return { items, notes };
 }

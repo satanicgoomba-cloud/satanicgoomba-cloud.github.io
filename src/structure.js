@@ -1,4 +1,4 @@
-import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwtolxab';
+import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwtthjow';
 // Song structure without touching Spotify's audio. Three public sources, combined into one energy
 // curve (how intense each moment is) plus, where possible, the real beat positions:
 //
@@ -221,7 +221,9 @@ export function analyze(track, bpm) {
       const p90 = pct(m.dens, 0.9) || 1;
       return Array.from({ length: B }, (_, i) => {
         const t = i * BIN + BIN / 2;
-        if (m.breaks.some(([a, b]) => t >= a && t < b) || t > m.last + 4000) return 0;
+        if (t > m.last + 4000) return 0;
+        // a mapper's break is often a vocal gap over loud music, not real silence
+        if (m.breaks.some(([a, b]) => t >= a && t < b)) return 0.3;
         let v = Math.min(1, (m.dens[i] || 0) / p90);
         if (m.kiai.some(([a, b]) => t >= a && t < b)) v = Math.max(v, 0.9);
         return v;
