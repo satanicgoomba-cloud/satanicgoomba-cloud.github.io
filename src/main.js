@@ -1,12 +1,13 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtld9az';
-import * as sp from './spotify-api.js?v=mwtld9az';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtld9az';
-import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtld9az';
-import { Game } from './game.js?v=mwtld9az';
-import { Pointers } from './ui3d.js?v=mwtld9az';
-import { Menu } from './menu3d.js?v=mwtld9az';
-import * as prof from './profile.js?v=mwtld9az';
+import * as auth from './spotify-auth.js?v=mwtlucqd';
+import * as sp from './spotify-api.js?v=mwtlucqd';
+import { lookupBpm } from './bpm.js?v=mwtlucqd';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtlucqd';
+import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtlucqd';
+import { Game } from './game.js?v=mwtlucqd';
+import { Pointers } from './ui3d.js?v=mwtlucqd';
+import { Menu } from './menu3d.js?v=mwtlucqd';
+import * as prof from './profile.js?v=mwtlucqd';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -59,7 +60,7 @@ const menu = new Menu(game.scene, pointers, {
     const tempo = getTempo(t), drops = getDrops(t, tempo);
     const st = prof.loadStats().tracks[t.id];
     return {
-      tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', default: '(guess: tap A/X in game)' }[tempo.source]}`,
+      tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', deezer: '(from Deezer)', default: '(guess: tap A/X in game)' }[tempo.source]}`,
       drop: { known: 'yes', marked: 'yes (you marked it)', estimated: 'estimated', none: 'none yet (click the stick at the drop to mark it)' }[drops.source],
       best: st ? `Best ${st.best.toLocaleString()} · played ${st.plays}×` : 'Not played yet',
     };
@@ -225,6 +226,7 @@ async function startTrack(track) {
   game.hitSounds = settings.hitSounds ?? isPractice(track);
   S.maxPos = 0; S.ending = false; S.nextAt = 0; tapper.reset();
   S.state = 'play'; menu.show('hidden');
+  if (!isPractice(track) && getTempo(track).source === 'default') { game.flash('Looking up tempo…', 3000); await lookupBpm(track); }
   game.loadTrack(track, getTempo(track), settings.difficulty || 'normal');
   try { await player.play(track); }
   catch (e) {

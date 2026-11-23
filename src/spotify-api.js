@@ -1,4 +1,4 @@
-import { getAccessToken } from './spotify-auth.js?v=mwtld9az';
+import { getAccessToken } from './spotify-auth.js?v=mwtlucqd';
 
 const API = 'https://api.spotify.com/v1';
 
@@ -42,6 +42,7 @@ function slimTrack(t) {
     album: t.album && t.album.name,
     art: (t.album && t.album.images && t.album.images.length && t.album.images[t.album.images.length > 1 ? 1 : 0].url) || '',
     duration_ms: t.duration_ms,
+    isrc: (t.external_ids && t.external_ids.isrc) || '',
     playable: t.is_playable !== false,
   };
 }

@@ -3,18 +3,18 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwtld9az';
-import { getAccessToken } from './spotify-auth.js?v=mwtld9az';
+import * as sp from './spotify-api.js?v=mwtlucqd';
+import { getAccessToken } from './spotify-auth.js?v=mwtlucqd';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
   constructor() { this.base = 0; this.at = performance.now(); this.playing = false; }
   now() { return this.playing ? this.base + (performance.now() - this.at) : this.base; }
-  sync(posMs, playing, at = performance.now()) {
+  sync(posMs, playing, at = performance.now(), tolerance = 90) {
     const target = posMs + (playing ? performance.now() - at : 0);
     const cur = this.now();
     const drift = target - cur;
-    const smooth = playing && this.playing && Math.abs(drift) < 90;
+    const smooth = playing && this.playing && Math.abs(drift) < tolerance;
     this.base = smooth ? cur + drift * 0.25 : target;
     this.at = performance.now();
     this.playing = playing;
@@ -120,10 +120,30 @@ export class ConnectPlayer {
     let s;
     try { s = await sp.getPlaybackState(); } catch { return; }
     const recv = performance.now();
+    this.report = s ? { playing: !!s.is_playing, progress: s.progress_ms, item: s.item && s.item.name, at: recv } : { none: true, at: recv };
     if (!s || !s.item) return;
-    if (this.track && !sameTrack(s.item, this.track)) return;
+    if (this.track && !sameTrack(s.item, this.track)) { this.report.other = true; return; }
+    const prev = this.prevReport; this.prevReport = { progress: s.progress_ms, at: recv };
+    let playing = !!s.is_playing;
+    if (!playing && !this.userPaused) {
+      // Spotify's status for some devices lags or says "paused" while the song is clearly running.
+      // Only believe "paused" if the position really stopped moving (and not right after we pressed play).
+      const advanced = prev && s.progress_ms > prev.progress + 400;
+      const stuck = prev && Math.abs(s.progress_ms - prev.progress) < 150 && recv - prev.at > 1500;
+      if (advanced || !stuck || recv - this.playAt < 8000) {
+        if (advanced) this.clock.sync(s.progress_ms, true, (sent + recv) / 2, 400);
+        return;
+      }
+    }
+    // "Playing" but the position isn't moving: a stale report. Keep our own clock running.
+    if (playing && prev && Math.abs(s.progress_ms - prev.progress) < 150 && recv - prev.at > 1500) { this.report.stale = true; return; }
+    // A big correction (>0.35 s) is only trusted when two reports agree the song advances in real time.
+    if (playing && Math.abs(s.progress_ms + (performance.now() - (sent + recv) / 2) - this.clock.now()) > 350) {
+      const rateOk = prev && Math.abs((s.progress_ms - prev.progress) - (recv - prev.at)) < 600;
+      if (!rateOk) { this.report.unconfirmed = true; return; }
+    }
     // Assume the server sampled the position half-way through the round trip.
-    this.clock.sync(s.progress_ms, s.is_playing, (sent + recv) / 2);
+    this.clock.sync(s.progress_ms, playing, (sent + recv) / 2, 400);
     this.lastSync = performance.now();
   }
   async play(track) {
@@ -133,12 +153,23 @@ export class ConnectPlayer {
     // Spotify accepted the play: start the clock now (≈ when the device starts) and let polls refine it,
     // so the fight never waits on a slow or mismatched status report.
     this.clock.sync(0, true, performance.now() - 150);
+    this.playAt = performance.now(); this.userPaused = false; this.prevReport = null;
     setTimeout(() => this._refresh(), 400);
     setTimeout(() => this._refresh(), 1200);
   }
-  async pause() { await sp.pause(this.device.id); this.clock.sync(this.clock.now(), false); }
-  async resume() { await sp.resume(this.device.id); setTimeout(() => this._refresh(), 400); }
+  async pause() { this.userPaused = true; await sp.pause(this.device.id); this.clock.sync(this.clock.now(), false); }
+  async resume() { this.userPaused = false; this.playAt = performance.now(); await sp.resume(this.device.id); this.clock.sync(this.clock.now(), true); setTimeout(() => this._refresh(), 400); }
   positionMs() { return this.clock.now(); }
+  /** One-line sync status for the HUD. */
+  syncInfo() {
+    const r = this.report;
+    if (!r) return 'waiting for Spotify status';
+    const age = ((performance.now() - r.at) / 1000).toFixed(1);
+    if (r.none) return `no status from Spotify (${age}s ago), using game clock`;
+    if (r.other) return `Spotify reports another song: ${r.item}`;
+    const t = Math.floor(r.progress / 1000);
+    return `Spotify ${r.playing ? 'playing' : 'paused'} ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}${r.stale ? ' (stale, using game clock)' : ''} · ${age}s ago`;
+  }
   activate() {}
   dispose() { clearInterval(this._poll); }
 }

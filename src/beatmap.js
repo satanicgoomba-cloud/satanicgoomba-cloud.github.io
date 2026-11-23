@@ -1,3 +1,4 @@
+import { cachedBpm } from './bpm.js?v=mwtlucqd';
 // Beat maps without audio analysis.
 // Spotify's /audio-features and /audio-analysis are closed to new apps (Nov 2024), and the
 // page can't read Spotify's audio, so a map is: tempo (BPM + phase) + drop times -> seeded
@@ -12,7 +13,9 @@ const read = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } 
 export function getTempo(track) {
   if (track.bpm) return { bpm: track.bpm, offsetMs: track.offsetMs || 0, source: 'known' };
   const s = read(TEMPO)[track.id];
-  return s ? { ...s, source: 'tapped' } : { bpm: DEFAULT_BPM, offsetMs: 0, source: 'default' };
+  if (s) return { ...s, source: 'tapped' };
+  const db = cachedBpm(track.id); // real BPM from Deezer, phase unknown (tap A/X to lock it)
+  return db ? { bpm: db, offsetMs: 0, source: 'deezer' } : { bpm: DEFAULT_BPM, offsetMs: 0, source: 'default' };
 }
 export function saveTempo(track, tempo) {
   const s = read(TEMPO);
@@ -81,7 +84,7 @@ export function getDrops(track, tempo) {
   // Estimate only when the beat grid is trustworthy (you tapped the tempo) and the song is long and
   // energetic enough. Not every song gets one, by design.
   const dur = track.duration_ms || 0;
-  if (tempo.source !== 'tapped' || dur < 150000 || tempo.bpm < 95) return { times: [], source: 'none' };
+  if ((tempo.source !== 'tapped' && tempo.source !== 'deezer') || dur < 150000 || tempo.bpm < 95) return { times: [], source: 'none' };
   const r = rng(`${track.id}:drop`);
   if (r() > 0.65) return { times: [], source: 'none' };
   const g = grid(tempo);
