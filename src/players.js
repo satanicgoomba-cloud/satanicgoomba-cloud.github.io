@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwtu0hed';
-import { getAccessToken } from './spotify-auth.js?v=mwtu0hed';
+import * as sp from './spotify-api.js?v=mwtuqaic';
+import { getAccessToken } from './spotify-auth.js?v=mwtuqaic';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -104,6 +104,15 @@ export class SdkPlayer {
   dispose() { clearInterval(this._poll); if (this.player) this.player.disconnect(); }
 }
 
+/** Can this browser play protected audio (what the in-headset Spotify player needs)? */
+export async function drmCheck() {
+  if (!navigator.requestMediaKeySystemAccess) return 'no EME in this browser';
+  try {
+    await navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{ initDataTypes: ['cenc'], audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }] }]);
+    return 'Widevine available';
+  } catch (e) { return `no Widevine (${e.name || e.message})`; }
+}
+
 /** Spotify may play a relinked copy of a song (different id, same song), so match generously. */
 export function sameTrack(item, track) {
   if (!item || !track) return false;
@@ -150,26 +159,30 @@ export class ConnectPlayer {
     this.clock.sync(s.progress_ms, playing, (sent + recv) / 2, 400);
     this.lastSync = performance.now();
   }
-  async play(track) {
+  async play(track, fromMs = 0) {
     this.track = track;
-    this.clock.sync(0, false);
+    this.clock.sync(fromMs, false);
     this.userPaused = false; this.prevReport = null;
-    await sp.playTrack(track.uri, this.device.id, 0);
+    await sp.playTrack(track.uri, this.device.id, Math.round(fromMs));
     // Wait until Spotify shows the song actually running (position moving): devices like the Quest app
     // can take a few seconds to start. Starting the fight before that made the missiles jump back.
-    const t0 = performance.now(); let prev = null, last = null;
+    const t0 = performance.now(); let prev = null, last = null, heard = false;
     while (performance.now() - t0 < 9000) {
       await new Promise((r) => setTimeout(r, 450));
       const sent = performance.now(); let st;
-      try { st = await sp.getPlaybackState(); } catch { continue; }
+      try { st = await sp.getPlaybackState(); } catch { heard = true; continue; } // network trouble: don't blame the device
       const recv = performance.now();
+      if (st && st.item && sameTrack(st.item, track)) heard = true;
       if (!st || !st.item || !sameTrack(st.item, track) || !st.is_playing) continue;
       last = { progress: st.progress_ms, at: (sent + recv) / 2 };
       if (prev && st.progress_ms > prev.progress + 100) break; // confirmed running
       prev = last;
     }
-    // Start from Spotify's own position if we have one; otherwise from 0 now (polls correct it later).
-    if (last) this.clock.sync(last.progress, true, last.at); else this.clock.sync(0, true);
+    // Spotify never even showed the song on that device: it's asleep (e.g. the Quest's Spotify app after
+    // the headset slept). Say so instead of starting a silent song.
+    if (!last && !heard) { const e = new Error(`Spotify on ${this.device.name} didn't start the song`); e.asleep = true; throw e; }
+    // Start from Spotify's own position if we have one; otherwise from here now (polls correct it later).
+    if (last) this.clock.sync(last.progress, true, last.at); else this.clock.sync(fromMs, true);
     this.playAt = performance.now(); this.prevReport = last ? { progress: last.progress, at: last.at } : null;
   }
   async pause() { this.userPaused = true; await sp.pause(this.device.id); this.clock.sync(this.clock.now(), false); }

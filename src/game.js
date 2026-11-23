@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwtu0hed';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwtuqaic';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)

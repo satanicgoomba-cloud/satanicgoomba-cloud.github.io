@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtu0hed';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtuqaic';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -223,7 +223,9 @@ export class Menu {
     p.button('autoplay', 30, 596, (W - 70) / 2, 56, `AUTOPLAY ${s.autoplay !== false ? 'ON' : 'OFF'}`, { selected: s.autoplay !== false, size: 20 });
     p.button('shuffle', 40 + (W - 70) / 2, 596, (W - 70) / 2, 56, `SHUFFLE ${s.shuffle ? 'ON' : 'OFF'}`, { selected: !!s.shuffle, size: 20 });
     const busy = this.api.loading && this.api.loading();
-    p.button('fight', 30, 676, W - 60, 110, busy || (t ? 'PLAY!' : 'PICK A SONG'), { style: 'primary', size: busy ? 30 : 44, color: busy ? '#8a5cff' : undefined });
+    const wake = !busy && t && !String(t.id).startsWith('practice') && this.api.wakeNeeded && this.api.wakeNeeded();
+    if (wake) p.button('wake', 30, 676, W - 60, 110, 'OPEN SPOTIFY', { style: 'primary', size: 40, color: '#1ed760' });
+    else p.button('fight', 30, 676, W - 60, 110, busy || (t ? 'PLAY!' : 'PICK A SONG'), { style: 'primary', size: busy ? 30 : 44, color: busy ? '#8a5cff' : undefined });
   }
 
   _clickCard(id) {
@@ -232,6 +234,7 @@ export class Menu {
     else if (id === 'autoplay') this.api.setSetting('autoplay', s.autoplay === false);
     else if (id === 'shuffle') this.api.setSetting('shuffle', !s.shuffle);
     else if (id === 'fight' && this.selected()) return this.api.onPlay(this.tab, this.sel);
+    else if (id === 'wake') return this.api.onWake();
     this.card.redraw();
   }
 
@@ -266,7 +269,8 @@ export class Menu {
     const help = this.api.inVR()
       ? ['Trigger or pinch: select · Stick: scroll', 'Slice pink cubes with the left saber, blue with the right', 'Swing the way the arrow points · dots: any way', 'Keep sabers off mines · duck and lean past walls', 'Pause: B/Y, Meta button, or tap left wrist · A/X: tap the beat']
       : ['Click: select · Wheel: scroll', 'In game: move the mouse to swing the saber', 'T tap tempo · [ ] nudge the beat', 'Esc pause · N next song', 'Add ?bot=1 to the address to watch a bot play'];
-    help.forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
+    const diag = this.api.headsetAudio && this.api.headsetAudio();
+    (diag ? [fitText(g, `Headset audio: ${diag}`, W - 50), ...help.slice(0, 4)] : help).forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
     g.textAlign = 'right'; g.fillStyle = 'rgba(244,240,255,0.35)'; g.font = FONT(500, 15); g.fillText(`build ${this.api.build()}`, W - 24, 26);
   }
 
@@ -318,7 +322,10 @@ export class Menu {
     g.fillStyle = C.text; g.font = FONT(900, 48); g.fillText('PAUSED', W / 2, 30);
     if (t) { g.fillStyle = C.muted; g.font = FONT(600, 22); g.fillText(fitText(g, `${t.name} · ${t.artist}`, W - 60), W / 2, 92); }
     const items = [['resume', 'RESUME', 'primary'], ['restart', 'RESTART'], ['skip', 'NEXT SONG'], ['select', 'SONG SELECT']];
-    items.forEach(([id, label, style], i) => p.button(id, 40, 140 + i * 88, W - 80, 72, label, { style: style || 'ghost', size: style ? 32 : 24 }));
+    const wake = this.api.wakeNeeded && this.api.wakeNeeded();
+    if (wake) items.splice(1, 0, ['wake', 'OPEN SPOTIFY', 'primary', '#1ed760']);
+    const step = wake ? 80 : 88, h = wake ? 66 : 72;
+    items.forEach(([id, label, style, color], i) => p.button(id, 40, 140 + i * step, W - 80, h, label, { style: style || 'ghost', size: style ? (wake ? 28 : 32) : 24, color }));
   }
 
   /* ---------------- results ---------------- */
