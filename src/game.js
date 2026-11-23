@@ -106,25 +106,57 @@ export class Game {
   }
 
   _buildGloves() {
+    // Gloves follow whatever the Quest is tracking: Touch controllers (grip pose) or bare hands
+    // (hand-tracking joints). Poses are read straight from the XRFrame every frame (see _trackXr),
+    // because three.js only moves controller "grip" objects for controllers, not for hands.
     this.gloves = {};
     for (const hand of ['L', 'R']) {
       const mesh = this._gloveMesh(hand);
-      this.gloves[hand] = { hand, mesh, pos: v3(), prev: v3(), vel: v3(), src: null };
+      this.gloves[hand] = { hand, mesh, pos: v3(), prev: v3(), vel: v3(), src: null, tracked: false, kind: null };
       this.scene.add(mesh);
     }
-    for (let i = 0; i < 2; i++) {
-      const grip = this.r.xr.getControllerGrip(i);
-      grip.addEventListener('connected', (e) => {
-        const hand = e.data.handedness === 'left' ? 'L' : 'R';
-        const g = this.gloves[hand];
-        g.src = e.data; g.grip = grip;
-        grip.add(g.mesh); g.mesh.position.set(0, 0, 0.02); g.mesh.rotation.set(0, 0, 0); g.mesh.scale.setScalar(1);
-      });
-      grip.addEventListener('disconnected', () => {
-        for (const g of Object.values(this.gloves)) if (g.grip === grip) { g.src = null; g.grip = null; this.scene.add(g.mesh); }
-      });
-      this.rig.add(grip);
+    // Wrist pause button on the back of the left glove: turn it toward you and tap it with the right glove.
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const g = c.getContext('2d');
+    g.fillStyle = 'rgba(16,7,34,0.85)'; g.beginPath(); g.arc(64, 64, 60, 0, Math.PI * 2); g.fill();
+    g.lineWidth = 6; g.strokeStyle = '#ffe14d'; g.stroke();
+    g.fillStyle = '#ffe14d'; g.fillRect(40, 36, 16, 56); g.fillRect(72, 36, 16, 56);
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    this.wristBtn = new THREE.Mesh(new THREE.CircleGeometry(0.035, 32), new THREE.MeshBasicMaterial({ map: tex, transparent: true, fog: false, depthTest: false }));
+    this.wristBtn.renderOrder = 9;
+    this.wristBtn.position.set(0, 0.075, 0.1); // back of the left wrist, above the cuff
+    this.wristBtn.rotation.x = -Math.PI / 2;  // faces up out of the back of the glove
+    this.wristBtn.visible = false;
+    this.gloves.L.mesh.add(this.wristBtn);
+    this._wristHold = 0;
+    this._m = new THREE.Matrix4(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3();
+  }
+
+  /** Pose of one input source in world space (controllers: grip; hands: knuckles, aimed along the hand). */
+  _trackXr(g, src, frame, ref) {
+    let pose = null;
+    if (src.hand) {
+      const j = (n) => src.hand.get(n);
+      const knuckle = frame.getJointPose && frame.getJointPose(j('middle-finger-phalanx-proximal'), ref);
+      const meta = frame.getJointPose && frame.getJointPose(j('middle-finger-metacarpal'), ref);
+      if (knuckle && meta) {
+        // position: the knuckles (what you punch with); orientation: along the back of the hand
+        const p = knuckle.transform.position, o = meta.transform.orientation;
+        this._m.compose(this._s.set(p.x, p.y, p.z), this._q.set(o.x, o.y, o.z, o.w), new THREE.Vector3(1, 1, 1));
+        g.kind = 'hand'; pose = true;
+      }
+    } else if (src.gripSpace) {
+      const gp = frame.getPose(src.gripSpace, ref);
+      if (gp) { this._m.fromArray(gp.transform.matrix); g.kind = 'controller'; pose = true; }
     }
+    if (!pose) return false;
+    this.rig.updateMatrixWorld();
+    this._m.premultiply(this.rig.matrixWorld);
+    this._m.decompose(g.mesh.position, g.mesh.quaternion, this._s);
+    g.mesh.scale.setScalar(g.kind === 'hand' ? 0.85 : 1);
+    // the punching surface is the front of the fist
+    g.pos.set(0, 0, g.kind === 'hand' ? 0.01 : -0.03).applyMatrix4(g.mesh.matrix.compose(g.mesh.position, g.mesh.quaternion, g.mesh.scale));
+    return true;
   }
 
   _missileMesh() {
@@ -290,6 +322,7 @@ export class Game {
     const pos = this.songPos();
     const focus = now < this.focusUntil;
     this._updateGloves(dt);
+    this._updateWrist(dt);
     if (this.mode === 'play') this._updateInputs(dt, pos);
 
     if (playing) {
@@ -352,8 +385,17 @@ export class Game {
     const xr = this.r.xr.isPresenting;
     for (const g of Object.values(this.gloves)) {
       g.prev.copy(g.pos);
-      if (xr && g.grip) {
-        g.mesh.getWorldPosition(g.pos);
+      if (xr) {
+        const frame = this.r.xr.getFrame(), ref = this.r.xr.getReferenceSpace(), session = this.r.xr.getSession();
+        g.src = null; g.tracked = false;
+        if (frame && ref && session) {
+          for (const src of session.inputSources) {
+            if ((src.handedness === 'left' ? 'L' : src.handedness === 'right' ? 'R' : null) !== g.hand) continue;
+            if (this._trackXr(g, src, frame, ref)) { g.src = src; g.tracked = true; break; }
+          }
+        }
+        g.mesh.visible = g.tracked;
+        if (!g.tracked) { g.pos.copy(g.prev); g.vel.multiplyScalar(0.5); }
       } else {
         const side = g.hand === 'L' ? -1 : 1;
         const guard = new THREE.Vector3(side * 0.2, 1.38, -0.42);
@@ -384,6 +426,24 @@ export class Game {
   }
 
   _btn(g, i) { return !!(g.src && g.src.gamepad && g.src.gamepad.buttons[i] && g.src.gamepad.buttons[i].pressed); }
+
+  /** Wrist pause: the button shows when the back of your left wrist faces you; tap it with the right glove. */
+  _updateWrist(dt) {
+    const L = this.gloves.L, R = this.gloves.R, b = this.wristBtn;
+    const show = this.r.xr.isPresenting && this.mode === 'play' && !this.paused && L.tracked;
+    let facing = false, touching = false;
+    if (show) {
+      const bp = b.getWorldPosition(new THREE.Vector3());
+      const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()));
+      const head = this.camera.getWorldPosition(new THREE.Vector3());
+      facing = normal.dot(head.clone().sub(bp).normalize()) > 0.35;
+      touching = facing && R.tracked && R.mesh.position.distanceTo(bp) < 0.11;
+    }
+    b.visible = show && facing;
+    b.scale.setScalar(touching ? 1.3 : 1);
+    this._wristHold = touching ? this._wristHold + dt : 0;
+    if (this._wristHold > 0.15) { this._wristHold = -10; this._haptic(R, 0.6, 60); this.hooks.onPause && this.hooks.onPause(); }
+  }
 
   _updateInputs(dt, pos) {
     const L = this.gloves.L, R = this.gloves.R;
@@ -739,7 +799,8 @@ export class Game {
   }
 
   onXrEnd() {
-    for (const g of Object.values(this.gloves)) { g.src = null; g.grip = null; g.mesh.rotation.set(0, 0, 0); this.scene.add(g.mesh); }
+    for (const g of Object.values(this.gloves)) { g.src = null; g.tracked = false; g.kind = null; g.mesh.rotation.set(0, 0, 0); }
+    this.wristBtn.visible = false;
     this.calibrateHeight();
   }
 

@@ -67,6 +67,7 @@ const menu = new Menu(game.scene, pointers, {
   onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : S.liked, index),
   onShareCard: () => prof.shareCard(prof.summary(S.profile)).then(() => game.flash('Profile card saved', 2000)).catch(() => {}),
   onExit: () => exitToLobby(),
+  onLogin: () => startLogin(),
   current: () => game.track,
   onPauseAction: (id) => ({ resume, restart: () => startTrack(S.queue[S.idx]), skip: () => finishTrack(false, true), select: () => toSelect() }[id] || (() => {}))(),
   lastResult: () => S.result,
@@ -210,11 +211,11 @@ function toSelect() {
 function pause() {
   if (S.state !== 'play') return;
   if (S.player) S.player.pause().catch(() => {});
-  S.state = 'pause'; menu.show('pause');
+  S.state = 'pause'; game.paused = true; menu.show('pause');
 }
 async function resume() {
   if (S.state !== 'pause') return;
-  menu.show('hidden'); S.state = 'play';
+  menu.show('hidden'); S.state = 'play'; game.paused = false;
   if (S.player) { S.player.activate(); await S.player.resume().catch(() => {}); }
 }
 
@@ -252,6 +253,8 @@ $('enterVR').onclick = async () => {
     S.practice.init().then(() => S.practice.activate());
     xrSession = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
     await renderer.xr.setSession(xrSession);
+    // Pressing the Meta button (system menu) blurs the session: pause the fight.
+    xrSession.addEventListener('visibilitychange', () => { if (xrSession && xrSession.visibilityState !== 'visible' && S.state === 'play') pause(); });
     xrSession.addEventListener('end', () => {
       xrSession = null; game.onXrEnd();
       if (S.state === 'play') pause();
@@ -266,7 +269,8 @@ $('playScreen').onclick = () => enterGame();
 
 // Installed as the immersive Quest app (start URL has ?vr=1): go straight into VR.
 // The icon click counts as user activation, so requestSession is allowed on load.
-if (new URLSearchParams(location.search).has('vr') && navigator.xr) {
+function autoEnterVR() {
+  if (!navigator.xr) return;
   navigator.xr.isSessionSupported('immersive-vr').then((ok) => { if (ok) $('enterVR').onclick(); }).catch(() => {});
 }
 $('practice').onclick = async () => { menu.tab = 'practice'; await enterGame(); menu.tab = 'practice'; menu.refresh(); };
@@ -323,7 +327,21 @@ $('saveId').onclick = () => {
   auth.setClientId(v); status('Client ID saved.'); renderAuth();
 };
 $('editId').onclick = () => { $('setup').hidden = false; $('clientId').value = auth.getClientId(); };
-$('login').onclick = () => auth.login().catch((e) => status(e.message, true));
+$('login').onclick = () => startLogin();
+async function startLogin() {
+  if (!auth.getClientId()) { if (xrSession) await xrSession.end().catch(() => {}); status('Enter your Spotify Client ID first.', true); $('setup').hidden = false; return; }
+  if (xrSession) await xrSession.end().catch(() => {}); // the Spotify page is 2D
+  auth.login().catch((e) => status(e.message, true));
+}
+// Inside the Quest app, Spotify's login page opens in a browser tab (so Google/Facebook sign-in work).
+// If that tab finishes the login itself (shared storage), pick it up when the app comes back.
+function recheckLogin() {
+  if (!auth.isLoggedIn() || S.profile) return;
+  status('Logged in.'); renderAuth(); loadSpotify();
+}
+addEventListener('storage', (e) => { if (e.key === 'bb.token') recheckLogin(); });
+addEventListener('focus', recheckLogin);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) recheckLogin(); });
 $('logout').onclick = () => {
   auth.logout(); localStorage.removeItem('bb.profile'); S.profile = null; S.liked = [];
   if (S.spotify) { S.spotify.dispose(); S.spotify = null; }
@@ -398,10 +416,26 @@ $('copyLink').onclick = async () => {
 };
 $('resetStats').onclick = () => { if (confirm('Reset all scores and play counts on this device?')) { prof.clearStats(); renderProfile(); } };
 
+/* ---------------- login hand-back (browser tab -> Quest app) ---------------- */
+function showHandoff(h) {
+  const app = h.pkg === auth.IMMERSIVE_PKG ? 'BeatBrawler' : 'BB Setup';
+  const msg = h.error ? `Spotify login was cancelled (${escapeHtml(h.error)}).`
+    : h.finished ? 'You\'re logged in to Spotify.' : 'Almost done: the app finishes the login.';
+  $('menu').hidden = false;
+  $('menu').querySelector('.panel').innerHTML = `<header class="brand"><h1>BEAT<span>BRAWLER</span> VR</h1></header>
+    <p>${msg}</p><p class="actions"><a class="big" id="backToApp" href="${escapeHtml(h.url)}">Back to ${app}</a></p>
+    <p class="small muted">If nothing happens, close this tab and open ${app} from your library${h.finished ? '' : ', then press Log in again'}.</p>`;
+  setTimeout(() => { location.href = h.url; }, 600);
+}
+
 /* ---------------- boot ---------------- */
 (async () => {
   layoutForMode();
-  try { if (await auth.handleRedirect()) status('Logged in.'); } catch (e) { status(e.message, true); }
+  let r = null;
+  try { r = await auth.handleRedirect(); if (r === 'done') status('Logged in.'); } catch (e) { status(e.message, true); }
+  if (r === 'handoff') { showHandoff(auth.handoff); return; } // this browser tab only hands the login back to the Quest app
   renderAuth();
+  // The immersive Quest app starts at ?vr=1, and comes back to it after a Spotify login.
+  if (new URLSearchParams(location.search).has('vr') || (auth.appPackage() === auth.IMMERSIVE_PKG && r !== 'error')) autoEnterVR();
   if (auth.isLoggedIn()) loadSpotify();
 })();

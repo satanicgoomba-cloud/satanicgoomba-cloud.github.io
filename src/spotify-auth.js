@@ -11,7 +11,20 @@ const SCOPES = [
   'user-modify-playback-state',  // start tracks on the SDK / Connect device
 ].join(' ');
 
-const K = { cid: 'bb.clientId', tok: 'bb.token', ver: 'bb.pkceVerifier', state: 'bb.pkceState' };
+const K = { cid: 'bb.clientId', tok: 'bb.token', pkce: 'bb.pkce', app: 'bb.appPkg' };
+
+/* ---- Quest app (Trusted Web Activity) detection ----
+   The APKs open this site in the Quest Browser engine. At launch the page's referrer is
+   android-app://<package>; remember it for this tab so a login can find its way back. */
+export const IMMERSIVE_PKG = 'io.beatbrawler.quest';
+const APPS = { i: IMMERSIVE_PKG, w: 'io.beatbrawler.quest.window' };
+const APP_CODE = Object.fromEntries(Object.entries(APPS).map(([k, v]) => [v, k]));
+try {
+  const m = /^android-app:\/\/([\w.]+)/.exec(document.referrer || '');
+  if (m && APP_CODE[m[1]]) sessionStorage.setItem(K.app, m[1]);
+} catch { /* ignore */ }
+export function appPackage() { try { return sessionStorage.getItem(K.app) || ''; } catch { return ''; } }
+
 
 export function redirectUri() {
   // Must match a Redirect URI in your Spotify app settings exactly, e.g. http://127.0.0.1:8443/
@@ -36,9 +49,11 @@ export async function login() {
   const clientId = getClientId();
   if (!clientId) throw new Error('Enter your Spotify Client ID first.');
   const verifier = randomString(64);
-  const state = randomString(16);
-  sessionStorage.setItem(K.ver, verifier);
-  sessionStorage.setItem(K.state, state);
+  // The state carries which Quest app started the login ('i'/'w'), or 'b' for a normal browser tab.
+  const state = `${randomString(16)}.${APP_CODE[appPackage()] || 'b'}`;
+  // localStorage, not sessionStorage: in the Quest app, Spotify's page (and Google/Facebook sign-in)
+  // runs in a real browser tab, and the redirect may land in that tab rather than the app.
+  localStorage.setItem(K.pkce, JSON.stringify({ verifier, state, t: Date.now() }));
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
   const p = new URLSearchParams({
     client_id: clientId, response_type: 'code', redirect_uri: redirectUri(), scope: SCOPES,
@@ -47,20 +62,46 @@ export async function login() {
   location.assign(`${AUTH_URL}?${p}`);
 }
 
-/** Call on page load. Returns true if it just completed a login redirect. */
+/** Link that reopens the Quest app (optionally carrying the login code for it to finish). */
+function appLink(pkg, query = '') {
+  return `intent://${location.host}${location.pathname.replace(/index\.html$/, '')}${query}#Intent;scheme=https;package=${pkg};end`;
+}
+
+/**
+ * Call on page load. Returns 'done' if it just completed a login, 'handoff' if this tab is a
+ * browser tab that should send the user back to the Quest app (see handoff), or false.
+ */
+export let handoff = null; // { pkg, url, finished }
 export async function handleRedirect() {
   const q = new URLSearchParams(location.search);
   if (!q.has('code') && !q.has('error')) return false;
   history.replaceState(null, '', redirectUri());
-  if (q.get('error')) throw new Error(`Spotify login cancelled: ${q.get('error')}`);
-  if (q.get('state') !== sessionStorage.getItem(K.state)) throw new Error('Login state mismatch, please try again.');
+  const state = q.get('state') || '';
+  const pkg = APPS[state.split('.').pop()];
+  // TWAs report display-mode standalone; a browser tab (Custom Tab) reports browser.
+  const standalone = !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  const inOtherTab = pkg && appPackage() !== pkg && !standalone;
+  if (q.get('error')) {
+    if (inOtherTab) { handoff = { pkg, url: appLink(pkg), finished: false, error: q.get('error') }; return 'handoff'; }
+    throw new Error(`Spotify login cancelled: ${q.get('error')}`);
+  }
+  let pending = null;
+  try { pending = JSON.parse(localStorage.getItem(K.pkce)); } catch { /* ignore */ }
+  const mine = pending && pending.state === state;
+  if (inOtherTab && !mine) {
+    // This browser tab can't see the app's storage: hand the code to the app to finish there.
+    handoff = { pkg, url: appLink(pkg, `?code=${encodeURIComponent(q.get('code'))}&state=${encodeURIComponent(state)}`), finished: false };
+    return 'handoff';
+  }
+  if (!mine) throw new Error('Login expired or started somewhere else, please press Log in again.');
   const body = new URLSearchParams({
     client_id: getClientId(), grant_type: 'authorization_code', code: q.get('code'),
-    redirect_uri: redirectUri(), code_verifier: sessionStorage.getItem(K.ver) || '',
+    redirect_uri: redirectUri(), code_verifier: pending.verifier,
   });
   await tokenRequest(body);
-  sessionStorage.removeItem(K.ver); sessionStorage.removeItem(K.state);
-  return true;
+  localStorage.removeItem(K.pkce);
+  if (inOtherTab) { handoff = { pkg, url: appLink(pkg), finished: true }; return 'handoff'; }
+  return 'done';
 }
 
 async function tokenRequest(body) {

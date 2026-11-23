@@ -188,11 +188,12 @@ export class Menu {
     p.button('lat:+', W - 110, 380, 80, 56, '+', { size: 30 });
     const hs = this.api.hitSounds();
     p.button('sounds', 30, 456, W - 60, 56, `HIT SOUNDS ${hs === undefined ? 'AUTO' : hs ? 'ON' : 'OFF'}`, { selected: !!hs, size: 20 });
-    p.button('card', 30, 528, W - 60, 56, 'SAVE PROFILE CARD', { size: 20 });
+    if (this.api.loggedIn()) p.button('card', 30, 528, W - 60, 56, 'SAVE PROFILE CARD', { size: 20 });
+    else p.button('login', 30, 528, W - 60, 56, 'LOG IN TO SPOTIFY', { style: 'primary', color: '#1ed760', size: 20 });
     p.button('exit', 30, 600, W - 60, 56, this.api.inVR() ? 'EXIT VR' : 'BACK TO LOBBY', { size: 20 });
     g.fillStyle = C.muted; g.font = FONT(500, 17); g.textAlign = 'left';
     const help = this.api.inVR()
-      ? ['Trigger: select · Stick: scroll', 'In game: A/X tap tempo · B/Y pause', 'Stick click: mark the drop here', 'Both grips + punch: Super Punch', 'Both triggers: Focus']
+      ? ['Trigger or pinch: select · Stick: scroll', 'Pause: B/Y, Meta button, or tap left wrist', 'A/X tap tempo · Stick click: mark drop', 'Both grips + punch: Super Punch', 'Both triggers: Focus (controllers)']
       : ['Click: select · Wheel: scroll', 'In game: T tap tempo · Esc pause', 'M: mark the drop here', 'Hold Space: Super / Drop Breaker', 'F: Focus · D/K or clicks: punch'];
     help.forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
   }
@@ -203,6 +204,7 @@ export class Menu {
     else if (id === 'lat:+') this.api.setSetting('latency', (s.latency || 0) + 10);
     else if (id === 'sounds') { const hs = this.api.hitSounds(); this.api.setSetting('hitSounds', hs === undefined ? true : hs ? false : undefined); }
     else if (id === 'card') this.api.onShareCard();
+    else if (id === 'login') this.api.onLogin();
     else if (id === 'exit') this.api.onExit();
     this.corner.redraw();
   }
