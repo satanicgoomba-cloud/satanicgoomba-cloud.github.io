@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtthjow';
-import * as sp from './spotify-api.js?v=mwtthjow';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtthjow';
+import * as auth from './spotify-auth.js?v=mwttxezw';
+import * as sp from './spotify-api.js?v=mwttxezw';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwttxezw';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtthjow';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtthjow';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtthjow';
-import { Game } from './game.js?v=mwtthjow';
-import { Pointers } from './ui3d.js?v=mwtthjow';
-import { Menu } from './menu3d.js?v=mwtthjow';
-import * as prof from './profile.js?v=mwtthjow';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwttxezw';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwttxezw';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwttxezw';
+import { Game } from './game.js?v=mwttxezw';
+import { Pointers } from './ui3d.js?v=mwttxezw';
+import { Menu } from './menu3d.js?v=mwttxezw';
+import * as prof from './profile.js?v=mwttxezw';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -152,7 +152,7 @@ function runSearch(q, now) {
 // a device id = Spotify Connect (Spotify app on your phone/computer/speaker plays, the game follows it).
 function wantedOutput() { return settings.output || ($('output') && $('output').value) || 'sdk'; }
 async function connectPlayer(preferId) {
-  S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'SpotiSaber');
+  S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'Slicewave');
   // Prefer Spotify running on this Quest (the official Quest app plays in the background during VR),
   // then whatever device is active, then anything.
   const onQuest = (x) => /quest|oculus|meta/i.test(x.name || '');
@@ -183,7 +183,7 @@ function ensureSpotify() {
   return spotifyStarting;
 }
 async function cycleOutput() { // in-headset -> each Connect device -> in-headset …
-  try { S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'SpotiSaber'); } catch { /* keep old list */ }
+  try { S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'Slicewave'); } catch { /* keep old list */ }
   const opts = ['sdk', ...S.devices.map((d) => d.id)];
   const cur = S.spotify && S.spotify.device ? S.spotify.device.id : wantedOutput();
   switchOutput(opts[(opts.indexOf(cur) + 1) % opts.length]);
@@ -479,7 +479,7 @@ $('output').onchange = () => { if (S.spotify) { S.spotify.dispose(); S.spotify =
 
 async function refreshDevices() {
   try {
-    S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'SpotiSaber');
+    S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'Slicewave');
     const sel = $('output'), cur = sel.value;
     sel.innerHTML = '<option value="sdk">This headset/browser (Web Playback SDK)</option>' +
       S.devices.map((d) => `<option value="${escapeHtml(d.id)}">Spotify Connect: ${escapeHtml(d.name)} (${escapeHtml(d.type)})</option>`).join('');

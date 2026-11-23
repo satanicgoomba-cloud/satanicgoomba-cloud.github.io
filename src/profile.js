@@ -35,7 +35,7 @@ export function clearStats() { localStorage.removeItem(STATS); }
 export function summary(profile, stats = loadStats()) {
   const list = Object.values(stats.tracks);
   return {
-    name: (profile && profile.name) || 'Guest Saber',
+    name: (profile && profile.name) || 'Guest Slicer',
     avatar: (profile && profile.avatar) || '',
     games: stats.games,
     totalScore: stats.totalScore,
@@ -142,7 +142,7 @@ export async function shareCard(sum) {
   if (!blob) throw new Error('Could not render the card (avatar image blocked).');
   const file = new File([blob], 'beatbrawler-profile.png', { type: 'image/png' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    await navigator.share({ files: [file], title: 'My SpotiSaber profile', url: shareUrl(sum) });
+    await navigator.share({ files: [file], title: 'My Slicewave profile', url: shareUrl(sum) });
     return 'shared';
   }
   const a = document.createElement('a');

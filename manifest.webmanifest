@@ -1,6 +1,6 @@
 {
-  "name": "SpotiSaber",
-  "short_name": "SpotiSaber",
+  "name": "Slicewave",
+  "short_name": "Slicewave",
   "description": "Slice the beat with two sabers. Your Spotify songs are the levels.",
   "start_url": "./",
   "scope": "./",

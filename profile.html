@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SpotiSaber Profile</title>
-  <link rel="stylesheet" href="style.css?v=mwtthjow" />
+  <title>Slicewave Profile</title>
+  <link rel="stylesheet" href="style.css?v=mwttxezw" />
   <style>body { overflow: auto; } .overlay { position: static; min-height: 100vh; }</style>
 </head>
 <body>
@@ -12,16 +12,16 @@
     <div class="panel">
       <header class="brand"><h1>BEAT<span>BRAWLER</span> VR</h1></header>
       <div id="view"><p class="muted">Loading profile…</p></div>
-      <div class="actions"><a href="./"><button class="big">Play SpotiSaber</button></a></div>
+      <div class="actions"><a href="./"><button class="big">Play Slicewave</button></a></div>
     </div>
   </div>
   <script type="module">
-    import { decodeShare } from './src/profile.js?v=mwtthjow';
+    import { decodeShare } from './src/profile.js?v=mwttxezw';
     const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const view = document.getElementById('view');
     try {
       const s = decodeShare(location.hash.slice(1));
-      document.title = `${s.name} · SpotiSaber Profile`;
+      document.title = `${s.name} · Slicewave Profile`;
       const av = s.avatar ? `<img class="av" src="${esc(s.avatar)}" alt="" referrerpolicy="no-referrer">` : `<div class="av">${esc(s.name.charAt(0).toUpperCase())}</div>`;
       const rows = (list, right) => list.length ? list.map((t) => `<li><span>${esc(t.name)} · <span class="muted">${esc(t.artist)}</span></span><span>${right(t)}</span></li>`).join('') : '<li class="muted">None yet</li>';
       view.innerHTML = `<div class="pcard">${av}<div class="nm">${esc(s.name)}</div>
