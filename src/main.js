@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtkl805';
-import * as sp from './spotify-api.js?v=mwtkl805';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtkl805';
-import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtkl805';
-import { Game } from './game.js?v=mwtkl805';
-import { Pointers } from './ui3d.js?v=mwtkl805';
-import { Menu } from './menu3d.js?v=mwtkl805';
-import * as prof from './profile.js?v=mwtkl805';
+import * as auth from './spotify-auth.js?v=mwtl07ru';
+import * as sp from './spotify-api.js?v=mwtl07ru';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtl07ru';
+import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtl07ru';
+import { Game } from './game.js?v=mwtl07ru';
+import { Pointers } from './ui3d.js?v=mwtl07ru';
+import { Menu } from './menu3d.js?v=mwtl07ru';
+import * as prof from './profile.js?v=mwtl07ru';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -69,6 +69,8 @@ const menu = new Menu(game.scene, pointers, {
   onExit: () => exitToLobby(),
   onLogin: () => startLogin(),
   onPasteCode: () => pasteLoginCode(),
+  audioError: () => S.spotifyError,
+  onAudio: () => cycleOutput(),
   inApp: () => auth.inApp(),
   current: () => game.track,
   onPauseAction: (id) => ({ resume, restart: () => startTrack(S.queue[S.idx]), skip: () => finishTrack(false, true), select: () => toSelect() }[id] || (() => {}))(),
@@ -111,17 +113,55 @@ function checkTrackEnd() {
   if (pos >= dur - 300 || (S.maxPos > dur - 4000 && pos < 1500 && !S.player.playing)) finishTrack(true);
 }
 
+/* ---------------- Spotify audio ---------------- */
+// Output: 'sdk' = play in this headset/browser (Web Playback SDK, needs DRM support);
+// a device id = Spotify Connect (Spotify app on your phone/computer/speaker plays, the game follows it).
+function wantedOutput() { return settings.output || ($('output') && $('output').value) || 'sdk'; }
+async function connectPlayer(preferId) {
+  S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'BeatBrawler VR');
+  const d = S.devices.find((x) => x.id === preferId) || S.devices.find((x) => x.is_active) || S.devices[0];
+  if (!d) throw new Error('No Spotify device found: open the Spotify app on your phone, play any song for a second, then press FIGHT again');
+  const p = new ConnectPlayer(d); await p.init(); return p;
+}
+let spotifyStarting = null;
+function ensureSpotify() {
+  if (S.spotify) return Promise.resolve(S.spotify);
+  spotifyStarting = spotifyStarting || (async () => {
+    const want = wantedOutput();
+    try {
+      if (want === 'sdk') { const p = new SdkPlayer(); await p.init(); p.activate(); S.spotify = p; }
+      else S.spotify = await connectPlayer(want);
+      S.spotifyError = '';
+    } catch (e) {
+      console.warn(e);
+      // In-headset playback failed (e.g. no DRM in this browser): fall back to Spotify Connect.
+      try { S.spotify = await connectPlayer(''); S.spotifyError = `Playing on ${S.spotify.device.name} (Spotify can't play inside the headset here)`; }
+      catch (e2) { S.spotifyError = want === 'sdk' ? `${e2.message}. (Spotify can't play inside the headset here: ${e.message})` : e2.message; throw new Error(S.spotifyError); }
+    } finally { spotifyStarting = null; menu.refresh(); }
+    return S.spotify;
+  })();
+  return spotifyStarting;
+}
+async function cycleOutput() { // in-headset -> each Connect device -> in-headset …
+  try { S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'BeatBrawler VR'); } catch { /* keep old list */ }
+  const opts = ['sdk', ...S.devices.map((d) => d.id)];
+  const cur = S.spotify && S.spotify.device ? S.spotify.device.id : wantedOutput();
+  switchOutput(opts[(opts.indexOf(cur) + 1) % opts.length]);
+  if (opts.length === 1) game.flash('Only headset audio: open Spotify on your phone to see it here', 4000);
+}
+function switchOutput(next) { // VR corner panel / start page: change where Spotify plays
+  settings.output = next; saveSettings();
+  if (S.spotify) { S.spotify.dispose && S.spotify.dispose(); S.spotify = null; }
+  S.spotifyError = '';
+  ensureSpotify().then(() => game.flash(`Audio: ${S.spotify.name}`, 2500)).catch((e) => game.flash(e.message, 5000));
+}
+
 /* ---------------- entering the game ---------------- */
 async function enterGame() {
   // Called from a click, so audio can be unlocked here.
   await S.practice.init(); S.practice.activate();
-  if (auth.isLoggedIn() && !S.spotify) {
-    try {
-      const out = $('output').value;
-      const p = out === 'sdk' ? new SdkPlayer() : new ConnectPlayer(S.devices.find((d) => d.id === out) || { id: out, name: 'device' });
-      await p.init(); p.activate(); S.spotify = p; S.spotifyError = '';
-    } catch (e) { S.spotifyError = `Spotify audio unavailable: ${e.message}`; console.warn(e); }
-  } else if (S.spotify) S.spotify.activate();
+  if (auth.isLoggedIn() && !S.spotify) ensureSpotify().catch(() => {}); // also retried on FIGHT
+  else if (S.spotify) S.spotify.activate();
   game.latencyMs = settings.latency || 0;
   $('menu').hidden = true; $('profile').hidden = true;
   layoutForMode();
@@ -159,11 +199,14 @@ function playFromList(list, index) {
 
 async function startTrack(track) {
   if (!track) return;
-  const player = isPractice(track) ? S.practice : S.spotify;
+  let player = isPractice(track) ? S.practice : S.spotify;
   if (!player) {
-    game.flash(S.spotifyError || 'Spotify playback is not connected', 4000);
-    menu.show('select'); S.state = 'select'; return;
+    if (!auth.isLoggedIn()) { game.flash('Log in to Spotify to play your Liked Songs', 4000); return; }
+    game.flash('Connecting to Spotify…', 10000); menu.refresh();
+    try { player = await ensureSpotify(); }
+    catch (e) { game.flash(e.message, 8000); menu.show('select'); S.state = 'select'; menu.refresh(); return; }
   }
+  player.activate && player.activate();
   for (const p of [S.practice, S.spotify]) if (p && p !== player && p.playing) p.pause().catch(() => {});
   S.player = player; game.setPlayer(player);
   // Hit sounds default: on for practice, off over Spotify songs (Spotify forbids mixing other audio in).
@@ -174,7 +217,7 @@ async function startTrack(track) {
   try { await player.play(track); }
   catch (e) {
     let msg = e.message;
-    if (e.status === 404) msg = 'Spotify device not found: open Spotify on it, or use the headset output';
+    if (e.status === 404) msg = 'Spotify device not found: open Spotify on it (or switch AUDIO on the corner panel)';
     if (e.status === 403) msg = 'Spotify refused playback (Premium required)';
     game.stop(); S.state = 'select'; menu.show('select'); game.flash(msg, 5000); S.spotifyError = msg; menu.refresh();
   }
@@ -354,6 +397,7 @@ $('logout').onclick = () => {
   status('Disconnected from Spotify. Your game stats are kept; reset them under Profile.'); renderAuth();
 };
 $('refreshDevices').onclick = refreshDevices;
+$('output').onchange = () => switchOutput($('output').value);
 $('output').onchange = () => { if (S.spotify) { S.spotify.dispose(); S.spotify = null; } };
 
 async function refreshDevices() {

@@ -102,18 +102,21 @@ const HARDER = { easy: 'normal', normal: 'hard', hard: 'hard' };
 
 // Formations decide which direction each missile flies in from (degrees; az 0 = straight ahead,
 // negative = left; el = up). Scaled down by `spread` for flat screens.
-const FORMATIONS = ['front', 'flanks', 'high', 'sweep', 'cross', 'front', 'flanks', 'sweep'];
+// Every missile comes from in front of you (within about ±22° left/right, -15..25° up/down), so
+// nothing arrives from where you can't see it. Variety comes from height, sweeps and cross-body punches.
+const FORMATIONS = ['front', 'high', 'sweep', 'cross', 'front', 'low', 'sweep', 'high'];
 function direction(form, hand, i, r) {
   const s = hand === 'L' ? -1 : 1;
   const j = (a, b) => a + r() * (b - a);
   switch (form) {
-    case 'flanks': return { az: s * j(42, 68), el: j(-5, 15) };
-    case 'high': return { az: s * j(8, 30), el: j(25, 40) };
-    case 'sweep': { const k = i / 7; return { az: s * (12 + 50 * (hand === 'L' ? 1 - k : k)), el: j(0, 14) }; }
-    case 'cross': return { az: -s * j(4, 14), el: j(0, 20) }; // crosses the midline: cross-body punches
-    default: return { az: s * j(8, 26), el: j(-5, 12) };
+    case 'high': return { az: s * j(6, 18), el: j(16, 25) };   // uppercut height
+    case 'low': return { az: s * j(6, 18), el: j(-15, -6) };   // body shots
+    case 'sweep': { const k = i / 7; return { az: s * (4 + 18 * (hand === 'L' ? 1 - k : k)), el: j(0, 12) }; }
+    case 'cross': return { az: -s * j(3, 10), el: j(0, 15) };  // crosses the midline: cross-body punches
+    default: return { az: s * j(8, 22), el: j(-5, 12) };
   }
 }
+export const MAX_AZ = 22;
 
 /**
  * @returns {{ notes: Array<{id,t,hand,az,el,strong}>, drops: Array<{t, buildStart, windowStart}> }}
@@ -153,7 +156,7 @@ export function generate(track, tempo, difficulty = 'normal', { spread = 1, drop
       for (const hand of hands) {
         if (t - lastByHand[hand] < minGap) continue;
         lastByHand[hand] = t;
-        const d = direction(hot && form === 'front' ? 'flanks' : form, hand, i, r);
+        const d = direction(hot && form === 'front' ? 'sweep' : form, hand, i, r);
         notes.push({ id: id++, t, hand, az: d.az * spread, el: d.el * Math.min(1, spread * 1.4), strong: i === 0 });
       }
     }

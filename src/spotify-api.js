@@ -1,4 +1,4 @@
-import { getAccessToken } from './spotify-auth.js?v=mwtkl805';
+import { getAccessToken } from './spotify-auth.js?v=mwtl07ru';
 
 const API = 'https://api.spotify.com/v1';
 
@@ -64,6 +64,8 @@ export async function getLikedSongs({ max = 1000, onPage } = {}) {
 
 export const getDevices = async () => (await api('/me/player/devices')).devices || [];
 export const getPlaybackState = () => api('/me/player');
+/** Make a device the active one (needed right after the in-browser player appears). */
+export const transferPlayback = (deviceId) => api('/me/player', { method: 'PUT', body: JSON.stringify({ device_ids: [deviceId], play: false }) });
 
 export function playTrack(uri, deviceId, positionMs = 0) {
   const q = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';

@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwtkl805';
-import { getAccessToken } from './spotify-auth.js?v=mwtkl805';
+import * as sp from './spotify-api.js?v=mwtl07ru';
+import { getAccessToken } from './spotify-auth.js?v=mwtl07ru';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -53,7 +53,7 @@ export class SdkPlayer {
       this.player.addListener('initialization_error', fail('This browser cannot run Spotify playback (DRM/EME missing?)'));
       this.player.addListener('authentication_error', fail('Spotify authentication failed'));
       this.player.addListener('account_error', fail('Spotify Premium is required for in-browser playback'));
-      setTimeout(() => reject(new Error('Spotify player did not become ready (try the Connect option).')), 15000);
+      setTimeout(() => reject(new Error('Spotify player did not become ready')), 10000);
     });
     this.player.addListener('player_state_changed', (s) => this._onState(s));
     this.player.addListener('playback_error', ({ message }) => console.warn('playback_error', message));
@@ -85,7 +85,14 @@ export class SdkPlayer {
   async play(track) {
     this.track = track;
     this.clock.sync(0, false);
-    await sp.playTrack(track.uri, this.deviceId, 0);
+    try { await sp.playTrack(track.uri, this.deviceId, 0); }
+    catch (e) {
+      if (e.status !== 404) throw e;
+      // A brand-new in-browser device is often "not found" until it's made active: transfer, then retry.
+      await sp.transferPlayback(this.deviceId).catch(() => {});
+      await new Promise((r) => setTimeout(r, 1200));
+      await sp.playTrack(track.uri, this.deviceId, 0);
+    }
   }
   async pause() { await this.player.pause(); this.clock.sync(this.clock.now(), false); }
   async resume() { await this.player.resume(); }

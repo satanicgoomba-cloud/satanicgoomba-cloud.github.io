@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtkl805';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtl07ru';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -147,7 +147,14 @@ export class Menu {
       g.font = FONT(500, 20); g.fillStyle = C.text;
       g.fillText(`${mmss(t.duration_ms)} · ${info.tempo}`, W / 2, 418);
       g.fillStyle = info.drop.startsWith('none') ? C.muted : C.gold; g.fillText(`Drop: ${info.drop}`, W / 2, 446);
-      g.fillStyle = C.muted; g.fillText(info.best, W / 2, 474);
+      const err = !String(t.id).startsWith('practice') && this.api.audioError();
+      if (!err) { g.fillStyle = C.muted; g.fillText(info.best, W / 2, 474); }
+      else { // audio problem: say what to do, on two lines where the best score would be
+        g.fillStyle = '#ff8a8a'; g.font = FONT(600, 17);
+        const words = err.split(' '); const lines = ['']; 
+        for (const w of words) { const tryL = (lines[lines.length - 1] + ' ' + w).trim(); if (g.measureText(tryL).width > W - 50 && lines[lines.length - 1]) lines.push(w); else lines[lines.length - 1] = tryL; }
+        lines.slice(0, 2).forEach((l, i) => g.fillText(i === 1 && lines.length > 2 ? fitText(g, l + ' ' + lines.slice(2).join(' '), W - 50) : l, W / 2, 470 + i * 21));
+      }
     }
     const diffs = ['easy', 'normal', 'hard'];
     const bw = (W - 80) / 3;
@@ -181,7 +188,8 @@ export class Menu {
     g.fillStyle = C.muted; g.font = FONT(500, 20);
     g.fillText(`${prof.totalScore.toLocaleString()} pts · best combo ${prof.bestCombo} · ${prof.accuracy}%`, W / 2, 262);
     g.fillStyle = C.muted; g.font = FONT(600, 19); g.textAlign = 'left';
-    g.fillText(fitText(g, `Audio: ${this.api.outputName()}`, W - 60), 30, 312);
+    if (this.api.loggedIn()) p.button('audio', 30, 296, W - 60, 44, fitText(g, `AUDIO: ${this.api.outputName()}  ▸`, W - 80), { size: 17 });
+    else g.fillText('Audio: practice tracks only', 30, 312);
     g.fillText('Audio latency', 30, 352);
     p.button('lat:-', 30, 380, 80, 56, '−', { size: 30 });
     g.fillStyle = C.text; g.font = FONT(800, 26); g.textAlign = 'center'; g.textBaseline = 'middle';
@@ -235,6 +243,7 @@ export class Menu {
     else if (id === 'sounds') { const hs = this.api.hitSounds(); this.api.setSetting('hitSounds', hs === undefined ? true : hs ? false : undefined); }
     else if (id === 'card') this.api.onShareCard();
     else if (id === 'login') this.api.onLogin();
+    else if (id === 'audio') this.api.onAudio();
     else if (id === 'exit') this.api.onExit();
     this.corner.redraw();
   }
