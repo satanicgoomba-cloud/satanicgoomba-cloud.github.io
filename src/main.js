@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtw8ful';
-import * as sp from './spotify-api.js?v=mwtw8ful';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtw8ful';
+import * as auth from './spotify-auth.js?v=mwtwdedb';
+import * as sp from './spotify-api.js?v=mwtwdedb';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtwdedb';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtw8ful';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtw8ful';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtw8ful';
-import { Game } from './game.js?v=mwtw8ful';
-import { Pointers } from './ui3d.js?v=mwtw8ful';
-import { Menu } from './menu3d.js?v=mwtw8ful';
-import * as prof from './profile.js?v=mwtw8ful';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtwdedb';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtwdedb';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtwdedb';
+import { Game } from './game.js?v=mwtwdedb';
+import { Pointers } from './ui3d.js?v=mwtwdedb';
+import { Menu } from './menu3d.js?v=mwtwdedb';
+import * as prof from './profile.js?v=mwtwdedb';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -87,6 +87,7 @@ const menu = new Menu(game.scene, pointers, {
   onWake: () => openSpotifyApp(),
   headsetAudio: () => S.headsetError || '',
   spotifyLog: () => S.spLog,
+  needsRelogin: () => auth.isLoggedIn() && needsRelogin(),
   onSpotifyCheck: () => spotifyCheck(),
   onAudio: () => cycleOutput(),
   inApp: () => auth.inApp(),
@@ -176,6 +177,17 @@ drmCheck().then((r) => { S.drm = r; });
 (() => {
   let sv = null; try { sv = JSON.parse(localStorage.getItem('bb.softVol')); } catch { /* ignore */ }
   if (sv && auth.isLoggedIn()) sp.setVolume(sv.vol, sv.id).then(() => spLog('restored Spotify volume after a silent pause')).catch(() => {}).finally(() => localStorage.removeItem('bb.softVol'));
+})();
+
+/** The login lacks a permission the in-game player needs (it said so, or the token says so). */
+function needsRelogin() {
+  const m = auth.missingScopes();
+  return (m && m.length > 0) || /scope/i.test(S.headsetError || '');
+}
+// The first time a login has every permission, go back to trying music inside the game.
+(() => {
+  const m = auth.missingScopes();
+  if (m && !m.length && !settings.scopesOk) { settings.scopesOk = 1; settings.output = 'sdk'; saveSettings(); }
 })();
 
 function wantedOutput() { return settings.output || ($('output') && $('output').value) || 'sdk'; }
@@ -280,7 +292,7 @@ function ensureSpotify() {
       console.warn(e);
       // In-headset playback failed (e.g. no DRM in this browser): fall back to Spotify Connect.
       spLog(`in-game player failed: ${e.message}`);
-      drmCheck().then((r) => { S.headsetError = `${e.message} · ${r}`; menu.refresh(); });
+      drmCheck().then((r) => { S.headsetError = `${e.message} · ${r}`; menu.refresh(); renderAuth(); });
       try { S.spotify = await connectPlayer('');
         S.spotifyError = onQuestDevice(S.spotify.device) ? '' : `Playing on ${S.spotify.device.name}. To hear it in the headset, open the Spotify app on this Quest, then AUDIO ▸ on the right panel`; }
       catch (e2) { spLog(`no Spotify device: ${e2.message}`); S.spotifyError = want === 'sdk' ? `${e2.message}. (Spotify can't play inside the headset here: ${e.message})` : e2.message; throw new Error(S.spotifyError); }
@@ -604,6 +616,7 @@ $('saveId').onclick = () => {
 };
 $('editId').onclick = () => { $('setup').hidden = false; $('clientId').value = auth.getClientId(); };
 $('login').onclick = () => startLogin();
+$('reloginBtn').onclick = () => startLogin();
 async function startLogin() {
   // Inside the Quest app, opening Spotify's page leaves (and closes) the app, so never navigate away:
   // show how to log in with the Quest Browser and bring the login back.
@@ -651,9 +664,11 @@ function renderAuth() {
   const hasId = !!auth.getClientId(), inn = auth.isLoggedIn(), app = auth.inApp();
   $('setup').hidden = hasId || app;
   $('loggedOut').hidden = !hasId || inn || app;
-  $('appLogin').hidden = !app || inn;
+  const re = inn && needsRelogin();
+  $('appLogin').hidden = !app || (inn && !re);
+  $('relogin').hidden = !re || app;
   $('loggedIn').hidden = !inn;
-  $('sendToApp').hidden = !inn || app;
+  $('sendToApp').hidden = !inn || app || re; // don't hand an old login to the app: it can't play in the headset
   if (inn && !app) {
     $('sendWindow').href = auth.sendToAppLink(auth.APP_PKGS.w);
     $('sendImmersive').href = auth.sendToAppLink(auth.IMMERSIVE_PKG);
@@ -711,6 +726,10 @@ $('resetStats').onclick = () => { if (confirm('Reset all scores and play counts 
 function useLoginCode(code) {
   auth.importLoginCode(code);
   S.profile = null; menu.loginHelp = false;
+  // a fresh login may allow music inside the game now: drop the old Spotify player so PLAY tries again
+  if (S.spotify) { S.spotify.dispose && S.spotify.dispose(); S.spotify = null; }
+  S.headsetError = ''; S.spotifyError = ''; S.wakeNeeded = false; settings.output = 'sdk'; saveSettings();
+  spLog('new login imported: will try music inside the game first');
   status('Logged in from the Quest Browser.'); renderAuth(); loadSpotify(); menu.refresh();
 }
 $('useCode').onclick = () => { try { useLoginCode($('codeInput').value); $('codeInput').value = ''; } catch (e) { status(e.message, true); } };

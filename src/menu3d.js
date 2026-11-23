@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtw8ful';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtwdedb';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -266,7 +266,8 @@ export class Menu {
     p.button('lat:+', W - 110, 380, 80, 56, '+', { size: 30 });
     const hs = this.api.hitSounds();
     p.button('sounds', 30, 456, W - 60, 56, `HIT SOUNDS ${hs === undefined ? 'AUTO' : hs ? 'ON' : 'OFF'}`, { selected: !!hs, size: 20 });
-    if (this.api.loggedIn()) p.button('card', 30, 528, W - 60, 56, 'SAVE PROFILE CARD', { size: 20 });
+    if (this.api.loggedIn() && this.api.needsRelogin && this.api.needsRelogin()) p.button('login', 30, 528, W - 60, 56, 'LOG IN AGAIN: HEADSET AUDIO', { style: 'primary', color: '#1ed760', size: 19 });
+    else if (this.api.loggedIn()) p.button('card', 30, 528, W - 60, 56, 'SAVE PROFILE CARD', { size: 20 });
     else p.button('login', 30, 528, W - 60, 56, 'LOG IN TO SPOTIFY', { style: 'primary', color: '#1ed760', size: 20 });
     p.button('exit', 30, 600, W - 60, 56, this.api.inVR() ? 'EXIT VR' : 'BACK TO LOBBY', { size: 20 });
     g.fillStyle = C.muted; g.font = FONT(500, 17); g.textAlign = 'left';

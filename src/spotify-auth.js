@@ -4,8 +4,9 @@
 const AUTH_URL = 'https://accounts.spotify.com/authorize';
 const TOKEN_URL = 'https://accounts.spotify.com/api/token';
 const SCOPES = [
-  'streaming',                   // Web Playback SDK
-  'user-read-private',           // profile: name, avatar, Premium check
+  'streaming',                   // Web Playback SDK (music inside the game)
+  'user-read-email',             // also required by the Web Playback SDK ("Invalid token scopes" without it)
+  'user-read-private',           // profile: name, avatar, Premium check (and the SDK)
   'user-library-read',           // Liked Songs
   'user-read-playback-state',    // Connect fallback: read position
   'user-modify-playback-state',  // start tracks on the SDK / Connect device
@@ -147,6 +148,7 @@ async function tokenRequest(body) {
     access_token: j.access_token,
     refresh_token: j.refresh_token || (old && old.refresh_token),
     expires_at: Date.now() + (j.expires_in - 60) * 1000,
+    scope: j.scope || (old && old.scope) || '', // what this login actually allows
   };
   localStorage.setItem(K.tok, JSON.stringify(tok));
   return tok;
@@ -157,6 +159,16 @@ function readToken() {
 }
 
 export function isLoggedIn() { return !!readToken(); }
+/** Permissions this login is missing (needs a fresh login to add). null = not known yet. */
+export function missingScopes() {
+  const tok = readToken();
+  if (!tok) return null;
+  // Logins saved before the game recorded permissions all lack user-read-email. A login code that was
+  // just imported (no access token yet) is unknown until its first refresh.
+  if (!tok.scope) return tok.access_token ? SCOPES.split(' ') : null;
+  const have = new Set(tok.scope.split(' '));
+  return SCOPES.split(' ').filter((s) => !have.has(s));
+}
 
 let refreshing = null;
 export async function getAccessToken() {

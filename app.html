@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Slicewave</title>
-  <link rel="stylesheet" href="style.css?v=mwtw8ful" />
+  <link rel="stylesheet" href="style.css?v=mwtwdedb" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <meta name="theme-color" content="#100722" />
   <script>window.BB_CONFIG = {};</script>
-  <script src="config.js?v=mwtw8ful" onerror="void 0"></script>
+  <script src="config.js?v=mwtwdedb" onerror="void 0"></script>
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }
   </script>
@@ -60,6 +60,10 @@
           <select id="output"><option value="sdk">This headset/browser (Web Playback SDK)</option></select>
         </label>
         <button id="refreshDevices" class="link" type="button">Refresh Spotify Connect devices</button>
+        <div id="relogin" class="sendbox" hidden>
+          <p class="small"><b>Log in once more</b> so Spotify can play music inside the game on this headset (Spotify needs one more permission: your account email, which the game never reads or sends anywhere). After that you won't need the Spotify app open.</p>
+          <div class="actions"><button id="reloginBtn" class="big spotify" type="button">Log in again with Spotify</button></div>
+        </div>
         <div id="sendToApp" class="sendbox" hidden>
           <p class="small"><b>Quest app:</b> hand this login to the installed app (it stays on this headset):</p>
           <div class="actions">
@@ -115,6 +119,6 @@
   </div>
 
   <div id="hudHint" class="hint" hidden>Esc: pause · Move the mouse to slice · T: tap tempo</div>
-  <script type="module" src="src/main.js?v=mwtw8ful"></script>
+  <script type="module" src="src/main.js?v=mwtwdedb"></script>
 </body>
 </html>
