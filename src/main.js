@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwttxezw';
-import * as sp from './spotify-api.js?v=mwttxezw';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwttxezw';
+import * as auth from './spotify-auth.js?v=mwtu0hed';
+import * as sp from './spotify-api.js?v=mwtu0hed';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtu0hed';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwttxezw';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwttxezw';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwttxezw';
-import { Game } from './game.js?v=mwttxezw';
-import { Pointers } from './ui3d.js?v=mwttxezw';
-import { Menu } from './menu3d.js?v=mwttxezw';
-import * as prof from './profile.js?v=mwttxezw';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtu0hed';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtu0hed';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtu0hed';
+import { Game } from './game.js?v=mwtu0hed';
+import { Pointers } from './ui3d.js?v=mwtu0hed';
+import { Menu } from './menu3d.js?v=mwtu0hed';
+import * as prof from './profile.js?v=mwtu0hed';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -578,7 +578,7 @@ addEventListener('hashchange', checkHashLogin); // the app may already be open w
 
 /* ---------------- login hand-back (browser tab -> Quest app) ---------------- */
 function showHandoff(h) {
-  const app = h.pkg === auth.IMMERSIVE_PKG ? 'the game' : 'BB Setup';
+  const app = h.pkg === auth.IMMERSIVE_PKG ? 'Slicewave' : 'Slicewave Setup';
   const msg = h.error ? `Spotify login was cancelled (${escapeHtml(h.error)}).`
     : h.finished ? 'You\'re logged in to Spotify.' : 'Almost done: the app finishes the login.';
   $('menu').hidden = false;

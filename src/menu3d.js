@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwttxezw';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtu0hed';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -283,7 +283,7 @@ export class Menu {
       '3. Enter your Client ID (first time) and',
       '   tap  Log in with Spotify  (Google and',
       '   Facebook work there).',
-      '4. Tap  Open the game with this login',
+      '4. Tap  Open Slicewave with this login',
       '   - or tap  Copy login code, come back',
       '   here and press PASTE LOGIN CODE.',
     ];
