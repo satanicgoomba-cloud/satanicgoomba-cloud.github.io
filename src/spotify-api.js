@@ -1,4 +1,4 @@
-import { getAccessToken } from './spotify-auth.js?v=mwtoi7ao';
+import { getAccessToken } from './spotify-auth.js?v=mwtolxab';
 
 const API = 'https://api.spotify.com/v1';
 
@@ -64,10 +64,27 @@ export async function getLikedSongs({ max = 1000, onPage } = {}) {
 }
 
 /** Search Spotify's catalogue for songs (playable in your country). */
-export async function searchTracks(q, limit = 30) {
+// Apps in Spotify's Development Mode get small search pages (a limit of 30 is refused as
+// "Invalid limit"), so ask for 10 per page, fetch a few pages, and drop `limit` if even that is refused.
+export async function searchTracks(q, pages = 3) {
   if (!q || !q.trim()) return [];
-  const j = await api(`/search?type=track&limit=${limit}&market=from_token&q=${encodeURIComponent(q.trim())}`);
-  return ((j && j.tracks && j.tracks.items) || []).filter((t) => t && t.id).map(slimTrack).filter((t) => t.playable);
+  const base = `/search?type=track&market=from_token&q=${encodeURIComponent(q.trim())}`;
+  const page = async (offset) => {
+    try { return await api(`${base}&limit=10&offset=${offset}`); }
+    catch (e) {
+      if (offset === 0 && e.status === 400 && /limit/i.test(e.message)) return api(base); // no limit/offset at all
+      if (offset === 0) throw e;
+      return null; // later pages are a bonus
+    }
+  };
+  const out = [], seen = new Set();
+  for (let i = 0; i < pages; i++) {
+    const j = await page(i * 10);
+    const items = (j && j.tracks && j.tracks.items) || [];
+    for (const t of items) if (t && t.id && !seen.has(t.id)) { seen.add(t.id); out.push(slimTrack(t)); }
+    if (items.length < 10 || !(j.tracks && j.tracks.next)) break;
+  }
+  return out.filter((t) => t.playable);
 }
 
 export const getDevices = async () => (await api('/me/player/devices')).devices || [];

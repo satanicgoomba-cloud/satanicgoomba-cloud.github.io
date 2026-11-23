@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { generate, sectionAt } from './beatmap.js?v=mwtoi7ao';
+import { generate, sectionAt } from './beatmap.js?v=mwtolxab';
 
 const LEAD_S = 1.7;          // seconds a missile is visible before its beat
 const FAR_SPEED = 10;        // m/s while flying in

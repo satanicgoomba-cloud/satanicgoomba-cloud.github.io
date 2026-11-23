@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtoi7ao';
-import * as sp from './spotify-api.js?v=mwtoi7ao';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtoi7ao';
+import * as auth from './spotify-auth.js?v=mwtolxab';
+import * as sp from './spotify-api.js?v=mwtolxab';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtolxab';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtoi7ao';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtoi7ao';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtoi7ao';
-import { Game } from './game.js?v=mwtoi7ao';
-import { Pointers } from './ui3d.js?v=mwtoi7ao';
-import { Menu } from './menu3d.js?v=mwtoi7ao';
-import * as prof from './profile.js?v=mwtoi7ao';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtolxab';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtolxab';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtolxab';
+import { Game } from './game.js?v=mwtolxab';
+import { Pointers } from './ui3d.js?v=mwtolxab';
+import { Menu } from './menu3d.js?v=mwtolxab';
+import * as prof from './profile.js?v=mwtolxab';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
