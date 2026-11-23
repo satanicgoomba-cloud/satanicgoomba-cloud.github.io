@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwtvli09';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwtw8ful';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -393,6 +393,7 @@ export class Game {
 
   loadTrack(track, tempo, difficulty) {
     this.track = track; this.tempo = tempo; this.difficulty = difficulty; this._lastPos = undefined;
+    this.paused = false; // a new song never starts paused (Restart / Next song from the pause menu)
     this.resetRun();
     this._regen();
     this.calibrateHeight();
@@ -426,7 +427,7 @@ export class Game {
   cellPos(col, row) { return new THREE.Vector3((col - 1.5) * LANE, this.rowY[row], 0); }
   songPos() { return this.player ? this.player.positionMs() - this.latencyMs : 0; }
   flash(text, ms = 2000) { this.message = text; this.messageUntil = performance.now() + ms; this.hudDirty = true; }
-  stop() { this.mode = 'menu'; this.resetRun(); this.track = null; this.sections = []; }
+  stop() { this.mode = 'menu'; this.paused = false; this.resetRun(); this.track = null; this.sections = []; }
 
   /* ================= per frame ================= */
   update(dt) {
@@ -522,7 +523,10 @@ export class Game {
             if (this._trackXr(g, src, frame, ref)) { g.src = src; g.tracked = true; break; }
           }
         }
-        g.mesh.visible = g.tracked;
+        // Tracking drops out for a moment now and then (fast swings, hands leaving the cameras' view):
+        // keep the saber where it was for half a second instead of blinking it out. It can't cut meanwhile.
+        if (g.tracked) g.seenAt = performance.now();
+        g.mesh.visible = g.tracked || performance.now() - (g.seenAt || 0) < 500;
       } else {
         this._desktopSaber(g, pos);
         g.mesh.visible = this.mode === 'play';

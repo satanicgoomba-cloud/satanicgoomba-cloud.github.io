@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtvli09';
-import * as sp from './spotify-api.js?v=mwtvli09';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtvli09';
+import * as auth from './spotify-auth.js?v=mwtw8ful';
+import * as sp from './spotify-api.js?v=mwtw8ful';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtw8ful';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtvli09';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtvli09';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtvli09';
-import { Game } from './game.js?v=mwtvli09';
-import { Pointers } from './ui3d.js?v=mwtvli09';
-import { Menu } from './menu3d.js?v=mwtvli09';
-import * as prof from './profile.js?v=mwtvli09';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtw8ful';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtw8ful';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtw8ful';
+import { Game } from './game.js?v=mwtw8ful';
+import { Pointers } from './ui3d.js?v=mwtw8ful';
+import { Menu } from './menu3d.js?v=mwtw8ful';
+import * as prof from './profile.js?v=mwtw8ful';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -399,7 +399,7 @@ async function startTrack(track) {
     }
     S.maxPos = 0; S.ending = false; tapper.reset();
     game.loadTrack(track, tempo0, settings.difficulty || 'normal');
-    S.state = 'play'; menu.show('hidden');
+    S.state = 'play'; game.paused = false; menu.show('hidden');
   } catch (e) {
     let msg = e.message;
     spLog(`PLAY failed: ${e.status ? `${e.status} ` : ''}${e.asleep ? '(no sound started) ' : ''}${e.message}`);
