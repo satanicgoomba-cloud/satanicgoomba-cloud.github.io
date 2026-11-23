@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { generate, getDrops } from './beatmap.js?v=mwtm6sdh';
-import { Shatter } from './shatter.js?v=mwtm6sdh';
+import { generate, getDrops } from './beatmap.js?v=mwtmd3ks';
+import { Shatter } from './shatter.js?v=mwtmd3ks';
 
 const LEAD_S = 1.7;          // seconds a missile is visible before its beat
 const FAR_SPEED = 10;        // m/s while flying in

@@ -1,13 +1,14 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtm6sdh';
-import * as sp from './spotify-api.js?v=mwtm6sdh';
-import { lookupBpm, prefetchBpm } from './bpm.js?v=mwtm6sdh';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtm6sdh';
-import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtm6sdh';
-import { Game } from './game.js?v=mwtm6sdh';
-import { Pointers } from './ui3d.js?v=mwtm6sdh';
-import { Menu } from './menu3d.js?v=mwtm6sdh';
-import * as prof from './profile.js?v=mwtm6sdh';
+import * as auth from './spotify-auth.js?v=mwtmd3ks';
+import * as sp from './spotify-api.js?v=mwtmd3ks';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtmd3ks';
+export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtmd3ks';
+import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtmd3ks';
+import { Game } from './game.js?v=mwtmd3ks';
+import { Pointers } from './ui3d.js?v=mwtmd3ks';
+import { Menu } from './menu3d.js?v=mwtmd3ks';
+import * as prof from './profile.js?v=mwtmd3ks';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -63,6 +64,7 @@ const menu = new Menu(game.scene, pointers, {
       tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', lookup: `(${tempo.from})`, default: bpmPending.has(t.id) ? '(looking up…)' : '(guess: tap A/X in game)' }[tempo.source]}`,
       drop: { known: 'yes', marked: 'yes (you marked it)', estimated: 'estimated', none: 'none yet (click the stick at the drop to mark it)' }[drops.source],
       best: st ? `Best ${st.best.toLocaleString()} · played ${st.plays}×` : 'Not played yet',
+      lookup: tempo.source === 'default' && !bpmPending.has(t.id) ? lookupDiag(t.id) : '',
     };
   },
   onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : S.liked, index),
@@ -72,12 +74,13 @@ const menu = new Menu(game.scene, pointers, {
   onPasteCode: () => pasteLoginCode(),
   onSelectTrack: (list, index) => { // look the tempo up while the player reads the fight card
     const t = list[index]; if (!t || isPractice(t)) return;
-    if (getTempo(t).source === 'default') { bpmPending.add(t.id); lookupBpm(t).finally(() => { bpmPending.delete(t.id); menu.refresh(); }); }
+    if (getTempo(t).source === 'default') { bpmPending.add(t.id); menu.refresh(); lookupBpm(t, { priority: true }).finally(() => { bpmPending.delete(t.id); menu.refresh(); }); }
     prefetchBpm(list.slice(index + 1, index + 6));
   },
   audioError: () => S.spotifyError,
   onAudio: () => cycleOutput(),
   inApp: () => auth.inApp(),
+  build: () => BUILD,
   current: () => game.track,
   onPauseAction: (id) => ({ resume, restart: () => startTrack(S.queue[S.idx]), skip: () => finishTrack(false, true), select: () => toSelect() }[id] || (() => {}))(),
   lastResult: () => S.result,
@@ -232,7 +235,7 @@ async function startTrack(track) {
   game.hitSounds = settings.hitSounds ?? isPractice(track);
   S.maxPos = 0; S.ending = false; S.nextAt = 0; tapper.reset();
   S.state = 'play'; menu.show('hidden');
-  if (!isPractice(track) && getTempo(track).source === 'default') { game.flash('Looking up tempo…', 6000); await Promise.race([lookupBpm(track), new Promise((r) => setTimeout(r, 6000))]); }
+  if (!isPractice(track) && getTempo(track).source === 'default') { game.flash('Looking up tempo…', 6000); await Promise.race([lookupBpm(track, { priority: true }), new Promise((r) => setTimeout(r, 6000))]); }
   game.loadTrack(track, getTempo(track), settings.difficulty || 'normal');
   try { await player.play(track); }
   catch (e) {
@@ -532,6 +535,7 @@ function showHandoff(h) {
 }
 
 /* ---------------- boot ---------------- */
+$('build').textContent = `build ${BUILD}`;
 (async () => {
   layoutForMode();
   // A login handed over from the Quest Browser arrives as #bblogin=<code>.

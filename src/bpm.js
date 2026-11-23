@@ -78,7 +78,7 @@ function ensureFrame() {
   return frameReady;
 }
 async function deezer(path, ms = 5000) {
-  await ensureFrame();
+  await Promise.race([ensureFrame(), timeout(3000)]);
   const id = ++seq;
   const ask = new Promise((r) => { waiting.set(id, r); frame.contentWindow.postMessage({ id, path }, '*'); });
   return Promise.race([ask, timeout(ms)]);
@@ -148,30 +148,55 @@ export function consensus(cands) {
   return { bpm: Math.round(bpm * 100) / 100, sources: [...new Set(best.group.map((g) => g.src))], votes: best.group.length, total: c.length };
 }
 
-/* ---------------- lookup (one song at a time, so the services aren't hammered) ---------------- */
+/* ---------------- lookup ---------------- */
+// Background lookups run one at a time; the song you're pointing at (or fighting) skips the queue.
 let queue = Promise.resolve();
 const inflight = new Map();
+const NAMES = ['Deezer', 'BeatSaver', 'osu!', 'AcousticBrainz'];
+const SOURCES = [srcDeezer, srcBeatSaver, srcOsu, srcAcousticBrainz];
+const CAP_MS = 5000; // use whatever has arrived by then
+
+async function runLookup(track) {
+  const diag = {};
+  const cands = [];
+  await new Promise((resolve) => {
+    let left = SOURCES.length;
+    const cap = setTimeout(() => { for (const n of NAMES) if (!(n in diag)) diag[n] = 'too slow'; resolve(); }, CAP_MS);
+    SOURCES.forEach((f, i) => {
+      f(track).then((r) => { cands.push(...r); diag[NAMES[i]] = r.length ? `${Math.round(r[0].bpm)}` : 'no match'; },
+        (e) => { diag[NAMES[i]] = String(e && e.message || e).slice(0, 40); })
+        .finally(() => { if (--left === 0) { clearTimeout(cap); resolve(); } });
+    });
+  });
+  const res = consensus(cands);
+  const db = read();
+  // a miss caused by errors (not "no match") is retried on the next look instead of in 3 days
+  const errored = Object.values(diag).some((d) => d !== 'no match' && !/^\d/.test(d));
+  db[track.id] = res ? { bpm: res.bpm, src: res.sources.join('+'), votes: res.votes, at: Date.now(), diag }
+    : { bpm: 0, at: errored ? 0 : Date.now(), diag };
+  write(db);
+  return db[track.id].bpm;
+}
 
 /** Look a song up in every source and save the agreed BPM. Resolves the BPM (0 if nothing matched). */
-export function lookupBpm(track, { force = false } = {}) {
+export function lookupBpm(track, { force = false, priority = false } = {}) {
   if (!track || !track.id || String(track.id).startsWith('practice')) return Promise.resolve(0);
   const hit = read()[track.id];
   if (!force && hit && (hit.bpm > 0 || Date.now() - (hit.at || 0) < RETRY_MISS_MS)) return Promise.resolve(hit.bpm || 0);
   if (inflight.has(track.id)) return inflight.get(track.id);
-  const job = queue.then(async () => {
-    const sources = [srcDeezer, srcBeatSaver, srcOsu, srcAcousticBrainz];
-    const settled = await Promise.allSettled(sources.map((f) => Promise.race([f(track), timeout(9000)])));
-    const cands = settled.flatMap((s) => (s.status === 'fulfilled' ? s.value : []));
-    const res = consensus(cands);
-    const db = read();
-    db[track.id] = res ? { bpm: res.bpm, src: res.sources.join('+'), votes: res.votes, at: Date.now() } : { bpm: 0, at: Date.now() };
-    write(db);
-    return db[track.id].bpm;
-  }).finally(() => inflight.delete(track.id));
-  queue = job.catch(() => 0);
+  let job;
+  if (priority) job = runLookup(track);
+  else { job = queue.then(() => runLookup(track)); queue = job.catch(() => 0); }
+  job = job.catch(() => 0).finally(() => inflight.delete(track.id));
   inflight.set(track.id, job);
   return job;
 }
 
 /** Warm the cache for songs the player is looking at (background, one at a time). */
 export function prefetchBpm(tracks) { for (const t of tracks) lookupBpm(t).catch(() => 0); }
+
+/** Short text for the fight card when a lookup found nothing. */
+export function lookupDiag(trackId) {
+  const d = (read()[trackId] || {}).diag;
+  return d ? NAMES.map((n) => `${n}: ${d[n] || '?'}`).join(' · ') : '';
+}

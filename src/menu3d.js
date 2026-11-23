@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtm6sdh';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtmd3ks';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -148,7 +148,7 @@ export class Menu {
       g.font = FONT(500, 20); g.fillStyle = C.text;
       g.fillText(`${mmss(t.duration_ms)} · ${info.tempo}`, W / 2, 418);
       g.fillStyle = info.drop.startsWith('none') ? C.muted : C.gold; g.fillText(`Drop: ${info.drop}`, W / 2, 446);
-      const err = !String(t.id).startsWith('practice') && this.api.audioError();
+      const err = !String(t.id).startsWith('practice') && (this.api.audioError() || (info.lookup ? `Tempo lookup: ${info.lookup}` : ''));
       if (!err) { g.fillStyle = C.muted; g.fillText(info.best, W / 2, 474); }
       else { // audio problem: say what to do, on two lines where the best score would be
         g.fillStyle = '#ff8a8a'; g.font = FONT(600, 17);
@@ -206,6 +206,7 @@ export class Menu {
       ? ['Trigger or pinch: select · Stick: scroll', 'Pause: B/Y, Meta button, or tap left wrist', 'A/X tap tempo · Stick click: mark drop', 'Both grips + punch: Super Punch', 'Both triggers: Focus (controllers)']
       : ['Click: select · Wheel: scroll', 'In game: T tap tempo · Esc pause', 'M: mark the drop here', 'Hold Space: Super / Drop Breaker', 'F: Focus · D/K or clicks: punch'];
     help.forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
+    g.textAlign = 'right'; g.fillStyle = 'rgba(244,240,255,0.35)'; g.font = FONT(500, 15); g.fillText(`build ${this.api.build()}`, W - 24, 26);
   }
 
   /** In the Quest app, Spotify's login can't open, so explain the Quest Browser route. */
