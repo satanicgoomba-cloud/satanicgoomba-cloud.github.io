@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtuqaic';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtvli09';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -241,6 +241,7 @@ export class Menu {
   /* ---------------- corner (right) ---------------- */
   _drawCorner(g, p) {
     if (this.loginHelp) return this._drawLoginHelp(g, p);
+    if (this.logView) return this._drawLog(g, p);
     const W = p.W, prof = this.api.profile(), s = this.api.settings();
     g.textAlign = 'center'; g.textBaseline = 'top';
     g.fillStyle = C.cyan; g.font = FONT(800, 22); g.fillText('YOUR CORNER', W / 2, 26);
@@ -253,7 +254,10 @@ export class Menu {
     g.fillStyle = C.muted; g.font = FONT(500, 20);
     g.fillText(`${prof.totalScore.toLocaleString()} pts · best combo ${prof.bestCombo} · ${prof.accuracy}%`, W / 2, 262);
     g.fillStyle = C.muted; g.font = FONT(600, 19); g.textAlign = 'left';
-    if (this.api.loggedIn()) p.button('audio', 30, 296, W - 60, 44, fitText(g, `AUDIO: ${this.api.outputName()}  ▸`, W - 80), { size: 17 });
+    if (this.api.loggedIn()) {
+      p.button('audio', 30, 296, W - 170, 44, fitText(g, `AUDIO: ${this.api.outputName()}  ▸`, W - 190), { size: 17 });
+      p.button('log', W - 130, 296, 100, 44, 'LOG', { size: 17 });
+    }
     else g.fillText('Audio: practice tracks only', 30, 312);
     g.fillText('Audio latency', 30, 352);
     p.button('lat:-', 30, 380, 80, 56, '−', { size: 30 });
@@ -298,7 +302,32 @@ export class Menu {
     g.fillText('The code stays on this headset. Don\'t share it.', 30, 580);
   }
 
+  /** What happened with Spotify (devices, wake-ups, errors), so a problem can be read off in VR. */
+  _drawLog(g, p) {
+    const W = p.W, lines = (this.api.spotifyLog && this.api.spotifyLog()) || [];
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillStyle = C.cyan; g.font = FONT(800, 24); g.fillText('SPOTIFY LOG', W / 2, 26);
+    g.textAlign = 'left'; g.font = FONT(500, 15);
+    // wrap each entry, newest at the bottom, keep what fits
+    const wrapped = [];
+    for (const l of lines) {
+      const words = l.split(' '); let cur = '';
+      for (const w of words) { const t = cur ? `${cur} ${w}` : w; if (g.measureText(t).width > W - 50 && cur) { wrapped.push(cur); cur = `   ${w}`; } else cur = t; }
+      wrapped.push(cur);
+    }
+    const show = wrapped.slice(-28);
+    if (!show.length) { g.fillStyle = C.muted; g.fillText('Nothing yet. Press CHECK SPOTIFY.', 25, 76); }
+    show.forEach((l, i) => { g.fillStyle = /failed|gone|gave up|no Spotify|no Widevine|no EME/.test(l) ? '#ff8a8a' : C.text; g.fillText(l, 25, 70 + i * 21); });
+    p.button('check', 30, 670, W - 60, 56, 'CHECK SPOTIFY', { style: 'primary', color: '#1ed760', size: 20 });
+    p.button('logback', 30, 738, W - 60, 52, 'BACK', { size: 20 });
+  }
+
   _clickCorner(id) {
+    if (this.logView) {
+      if (id === 'check') this.api.onSpotifyCheck();
+      else if (id === 'logback') this.logView = false;
+      this.corner.redraw(); return;
+    }
     if (this.loginHelp) {
       if (id === 'paste') this.api.onPasteCode();
       else if (id === 'back') this.loginHelp = false;
@@ -311,6 +340,7 @@ export class Menu {
     else if (id === 'card') this.api.onShareCard();
     else if (id === 'login') this.api.onLogin();
     else if (id === 'audio') this.api.onAudio();
+    else if (id === 'log') this.logView = true;
     else if (id === 'exit') this.api.onExit();
     this.corner.redraw();
   }

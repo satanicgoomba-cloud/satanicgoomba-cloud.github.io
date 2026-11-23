@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtuqaic';
-import * as sp from './spotify-api.js?v=mwtuqaic';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtuqaic';
+import * as auth from './spotify-auth.js?v=mwtvli09';
+import * as sp from './spotify-api.js?v=mwtvli09';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtvli09';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtuqaic';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtuqaic';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtuqaic';
-import { Game } from './game.js?v=mwtuqaic';
-import { Pointers } from './ui3d.js?v=mwtuqaic';
-import { Menu } from './menu3d.js?v=mwtuqaic';
-import * as prof from './profile.js?v=mwtuqaic';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtvli09';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtvli09';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtvli09';
+import { Game } from './game.js?v=mwtvli09';
+import { Pointers } from './ui3d.js?v=mwtvli09';
+import { Menu } from './menu3d.js?v=mwtvli09';
+import * as prof from './profile.js?v=mwtvli09';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -86,6 +86,8 @@ const menu = new Menu(game.scene, pointers, {
   wakeNeeded: () => !!S.wakeNeeded && auth.isLoggedIn(),
   onWake: () => openSpotifyApp(),
   headsetAudio: () => S.headsetError || '',
+  spotifyLog: () => S.spLog,
+  onSpotifyCheck: () => spotifyCheck(),
   onAudio: () => cycleOutput(),
   inApp: () => auth.inApp(),
   loading: () => S.loading,
@@ -153,6 +155,29 @@ function runSearch(q, now) {
 /* ---------------- Spotify audio ---------------- */
 // Output: 'sdk' = play in this headset/browser (Web Playback SDK, needs DRM support);
 // a device id = Spotify Connect (Spotify app on your phone/computer/speaker plays, the game follows it).
+/* ---------------- Spotify log (readable in VR: corner panel → LOG) ---------------- */
+const SPLOG = 'bb.spLog';
+S.spLog = (() => { try { return JSON.parse(localStorage.getItem(SPLOG)) || []; } catch { return []; } })();
+function spLog(msg) {
+  const d = new Date(), hh = `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+  S.spLog.push(`${hh}  ${msg}`); while (S.spLog.length > 30) S.spLog.shift();
+  try { localStorage.setItem(SPLOG, JSON.stringify(S.spLog)); } catch { /* ignore */ }
+  console.log('[spotify]', msg); menu && menu.refresh && menu.refresh();
+}
+const devNames = (list) => (list.length ? list.map((d) => `${d.name}${d.is_active ? ' (active)' : ''}`).join(', ') : 'none');
+async function spotifyCheck() {
+  spLog(`check: headset audio ${S.drm || '?'}${S.headsetError ? ` · in-game player: ${S.headsetError}` : ''}`);
+  const ld = lastDevice(); spLog(`check: last device ${ld ? ld.name : 'none'} · now using ${S.spotify ? S.spotify.name : 'nothing'}`);
+  try { const all = await sp.getDevices(); spLog(`check: Spotify lists ${devNames(all)}`); }
+  catch (e) { spLog(`check: device list failed: ${e.status || ''} ${e.message}`); }
+}
+drmCheck().then((r) => { S.drm = r; });
+// the game was closed while Spotify was silently paused: turn its volume back up
+(() => {
+  let sv = null; try { sv = JSON.parse(localStorage.getItem('bb.softVol')); } catch { /* ignore */ }
+  if (sv && auth.isLoggedIn()) sp.setVolume(sv.vol, sv.id).then(() => spLog('restored Spotify volume after a silent pause')).catch(() => {}).finally(() => localStorage.removeItem('bb.softVol'));
+})();
+
 function wantedOutput() { return settings.output || ($('output') && $('output').value) || 'sdk'; }
 async function connectPlayer(preferId) {
   S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'Slicewave');
@@ -160,6 +185,7 @@ async function connectPlayer(preferId) {
   // then whatever device is active, then anything.
   const onQuest = (x) => /quest|oculus|meta/i.test(x.name || '');
   let d = S.devices.find((x) => x.id === preferId) || S.devices.find(onQuest) || S.devices.find((x) => x.is_active) || S.devices[0];
+  spLog(`devices: ${devNames(S.devices)}`);
   if (!d && lastDevice()) d = await wakeSpotify(12000, true); // the Quest's Spotify may still be waking up
   if (!d) { S.wakeNeeded = true; throw new Error('No Spotify device found: tap OPEN SPOTIFY (or open the Spotify app on this Quest or your phone), play any song for a second, then come back'); }
   rememberDevice(d);
@@ -183,23 +209,27 @@ function wakeSpotify(ms = 15000, quiet = false) {
   waking = waking || (async () => {
     const want = (S.spotify && S.spotify.device) || lastDevice();
     const t0 = performance.now();
+    spLog(`waking Spotify (looking for ${want ? want.name : 'any Quest device'})`);
+    let seen = '';
     if (!quiet) game.flash('Waking Spotify…', 3000);
     try {
       while (performance.now() - t0 < ms) {
         let list = null;
-        try { list = (await sp.getDevices()).filter(usableDevice); S.devices = list; } catch { /* offline for a moment */ }
+        try { list = (await sp.getDevices()).filter(usableDevice); S.devices = list; seen = devNames(list); } catch (e) { seen = `device list failed: ${e.status || ''} ${e.message}`; }
         if (list) {
           // same device, or the same Spotify app under a new id after it restarted, or any Spotify on this Quest
           const d = (want && (list.find((x) => x.id === want.id) || list.find((x) => x.name === want.name))) || list.find(onQuestDevice) || (!want && list.find((x) => x.is_active));
           if (d) {
             await sp.transferPlayback(d.id).catch(() => {});
             rememberDevice(d); S.wakeNeeded = false; S.spotifyError = '';
+            spLog(`woke: ${d.name} after ${((performance.now() - t0) / 1000).toFixed(1)} s`);
             return d;
           }
         }
         await sleep(1500);
       }
       S.wakeNeeded = true;
+      spLog(`gave up waking after ${Math.round(ms / 1000)} s; Spotify lists: ${seen || 'nothing'}`);
       S.spotifyError = 'Spotify on this Quest is asleep (the headset was off). Tap OPEN SPOTIFY, play any song for a second, then come back: the game reconnects by itself.';
       return null;
     } finally { waking = null; menu.refresh(); }
@@ -222,12 +252,14 @@ async function deviceListed(id) {
 async function checkSpotifyAwake() {
   if (!auth.isLoggedIn() || !S.spotify || !S.spotify.device || waking) return;
   if (await deviceListed(S.spotify.device.id)) { S.wakeNeeded = false; return; }
+  spLog(`back from sleep: ${S.spotify.device.name} is gone (Spotify lists: ${devNames(S.devices || [])})`);
   const d = await wakeSpotify(20000, true);
   if (d) { useDevice(d); game.flash(`Spotify reconnected: ${d.name}`, 2500); }
 }
 /** Open the Spotify app (or the web player) from the game. Android opens the app that owns
  *  open.spotify.com links, else the browser; the game reconnects when you come back. */
 function openSpotifyApp() {
+  spLog('OPEN SPOTIFY pressed');
   game.flash('Opening Spotify: play any song for a second, then come back', 8000);
   setTimeout(() => wakeSpotify(90000, true).then((d) => { if (d) { useDevice(d); game.flash(`Spotify reconnected: ${d.name}`, 3000); } }), 1500);
   const fallback = encodeURIComponent('https://open.spotify.com/');
@@ -243,14 +275,15 @@ function ensureSpotify() {
     try {
       if (want === 'sdk') { const p = new SdkPlayer(); await p.init(); p.activate(); S.spotify = p; }
       else S.spotify = await connectPlayer(want);
-      S.spotifyError = '';
+      S.spotifyError = ''; spLog(`audio: ${S.spotify.name}`);
     } catch (e) {
       console.warn(e);
       // In-headset playback failed (e.g. no DRM in this browser): fall back to Spotify Connect.
+      spLog(`in-game player failed: ${e.message}`);
       drmCheck().then((r) => { S.headsetError = `${e.message} · ${r}`; menu.refresh(); });
       try { S.spotify = await connectPlayer('');
         S.spotifyError = onQuestDevice(S.spotify.device) ? '' : `Playing on ${S.spotify.device.name}. To hear it in the headset, open the Spotify app on this Quest, then AUDIO ▸ on the right panel`; }
-      catch (e2) { S.spotifyError = want === 'sdk' ? `${e2.message}. (Spotify can't play inside the headset here: ${e.message})` : e2.message; throw new Error(S.spotifyError); }
+      catch (e2) { spLog(`no Spotify device: ${e2.message}`); S.spotifyError = want === 'sdk' ? `${e2.message}. (Spotify can't play inside the headset here: ${e.message})` : e2.message; throw new Error(S.spotifyError); }
     } finally { spotifyStarting = null; menu.refresh(); }
     return S.spotify;
   })();
@@ -292,7 +325,7 @@ function layoutForMode() {
 
 function exitToLobby() {
   if (inVR() && xrSession) { xrSession.end(); return; }
-  if (S.player && S.player.playing) S.player.pause().catch(() => {});
+  if (S.player && (S.player.playing || S.player.soft)) S.player.pause().catch(() => {});
   if (S.state === 'play') S.state = 'pause';
   menu.show('hidden');
   if (S.state !== 'pause') { game.stop(); S.state = 'lobby'; }
@@ -369,6 +402,7 @@ async function startTrack(track) {
     S.state = 'play'; menu.show('hidden');
   } catch (e) {
     let msg = e.message;
+    spLog(`PLAY failed: ${e.status ? `${e.status} ` : ''}${e.asleep ? '(no sound started) ' : ''}${e.message}`);
     if (e.status === 404 || e.asleep) { msg = S.spotifyError || 'Spotify isn\'t reachable: tap OPEN SPOTIFY, play any song, then come back'; S.wakeNeeded = true; }
     if (e.status === 403) msg = 'Spotify refused playback (Premium required)';
     if (!isPractice(track)) S.spotifyError = msg;
@@ -390,7 +424,7 @@ function finishTrack(ended, skipToNext = false) {
   const accuracy = r.hits + r.misses ? Math.round((100 * r.hits) / (r.hits + r.misses)) : 0;
   const synced = learnSync(track, r.errs);
   if (skipToNext) { startNext(); return; }
-  if (S.player && S.player.playing) S.player.pause().catch(() => {});
+  if (S.player && (S.player.playing || S.player.soft)) S.player.pause().catch(() => {});
   S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, mines: r.mines, isBest, synced };
   game.stop(); S.state = 'results';
   S.nextAt = settings.autoplay !== false && S.queue.length > 1 ? performance.now() + 6000 : 0;
@@ -404,28 +438,42 @@ function startNext() {
 }
 
 function toSelect() {
-  if (S.player && S.player.playing) S.player.pause().catch(() => {});
+  if (S.player && (S.player.playing || S.player.soft)) S.player.pause().catch(() => {});
   game.stop(); S.state = 'select'; S.nextAt = 0;
   menu.show('select');
 }
 
 function pause() {
   if (S.state !== 'play') return;
-  if (S.player) S.player.pause().catch(() => {});
+  const p = S.player;
+  if (p && p.softPause && p.device && p.device.supports_volume !== false && settings.softPause !== false) {
+    // keep Spotify running at volume 0 so the Quest doesn't put the Spotify app to sleep
+    const vol = typeof p.device.volume_percent === 'number' && p.device.volume_percent > 0 ? p.device.volume_percent : 70;
+    p.softPause(vol).then(() => spLog(`paused silently (Spotify keeps playing at volume 0, was ${vol}%)`))
+      .catch((e) => { spLog(`silent pause failed (${e.status || ''} ${e.message}): pausing Spotify`); p.soft = null; p.pause().catch(() => {}); });
+    clearTimeout(S.softTimer); // after 5 minutes, really pause (and turn the volume back up)
+    S.softTimer = setTimeout(() => { if (p.soft) { spLog('paused 5 min: stopped Spotify'); p.pause().catch(() => {}); } }, 5 * 60000);
+  } else if (p) p.pause().catch(() => {});
   S.state = 'pause'; game.paused = true; menu.show('pause');
 }
 async function resume() {
   if (S.state !== 'pause') return;
   const p = S.player;
   // Connect device gone while paused (headset slept)? Bring it back and pick the song up where it was.
+  clearTimeout(S.softTimer);
   if (p && p.device && !(await deviceListed(p.device.id))) {
+    spLog(`resume: ${p.device.name} is gone`);
     game.flash('Waking Spotify…', 15000);
     const d = await wakeSpotify(15000, true);
     if (!d) { game.flash('Spotify is asleep: tap OPEN SPOTIFY, play any song, come back and Resume', 8000); menu.refresh(); return; }
     const np = useDevice(d); S.player = np; game.setPlayer(np);
-    const at = Math.max(0, p.positionMs());
+    const at = Math.max(0, p.positionMs()), vol = p.soft && p.soft.vol; if (p !== np) p.soft = null; np.soft = null;
     menu.show('hidden'); S.state = 'play'; game.paused = false;
-    try { await np.play(game.track, at); game.flash(`Spotify reconnected: ${d.name}`, 2500); }
+    try {
+      await np.play(game.track, at);
+      if (vol) { await sp.setVolume(vol, np.device.id).catch(() => {}); np.device.volume_percent = vol; localStorage.removeItem('bb.softVol'); }
+      game.flash(`Spotify reconnected: ${d.name}`, 2500);
+    }
     catch (e) { pause(); game.flash(e.message, 6000); }
     return;
   }
@@ -486,6 +534,7 @@ $('enterVR').onclick = async () => {
     // Pressing the Meta button (system menu) blurs the session: pause the fight.
     xrSession.addEventListener('visibilitychange', () => {
       if (xrSession && xrSession.visibilityState !== 'visible' && S.state === 'play') pause();
+      if (xrSession) spLog(`headset view ${xrSession.visibilityState}`);
       if (xrSession && xrSession.visibilityState === 'visible') checkSpotifyAwake();
     });
     xrSession.addEventListener('end', () => {
@@ -572,7 +621,10 @@ function recheckLogin() {
 }
 addEventListener('storage', (e) => { if (e.key === 'bb.token') recheckLogin(); });
 addEventListener('focus', recheckLogin);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { recheckLogin(); checkSpotifyAwake(); } });
+document.addEventListener('visibilitychange', () => {
+  if (auth.isLoggedIn()) spLog(document.hidden ? 'game hidden (headset asleep or another app)' : 'game visible again');
+  if (!document.hidden) { recheckLogin(); checkSpotifyAwake(); }
+});
 $('logout').onclick = () => {
   auth.logout(); localStorage.removeItem('bb.profile'); S.profile = null; S.liked = [];
   if (S.spotify) { S.spotify.dispose(); S.spotify = null; }

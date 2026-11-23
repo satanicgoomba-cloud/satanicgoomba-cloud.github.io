@@ -1,4 +1,4 @@
-import { getAccessToken } from './spotify-auth.js?v=mwtuqaic';
+import { getAccessToken } from './spotify-auth.js?v=mwtvli09';
 
 const API = 'https://api.spotify.com/v1';
 
@@ -95,6 +95,11 @@ export const transferPlayback = (deviceId) => api('/me/player', { method: 'PUT',
 export function playTrack(uri, deviceId, positionMs = 0) {
   const q = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';
   return api(`/me/player/play${q}`, { method: 'PUT', body: JSON.stringify({ uris: [uri], position_ms: positionMs }) });
+}
+/** Set a device's volume (0-100). Used for the silent pause that keeps the Quest's Spotify app awake. */
+export function setVolume(pct, deviceId) {
+  const q = `?volume_percent=${Math.max(0, Math.min(100, Math.round(pct)))}${deviceId ? `&device_id=${encodeURIComponent(deviceId)}` : ''}`;
+  return api(`/me/player/volume${q}`, { method: 'PUT' });
 }
 export function pause(deviceId) {
   const q = deviceId ? `?device_id=${encodeURIComponent(deviceId)}` : '';

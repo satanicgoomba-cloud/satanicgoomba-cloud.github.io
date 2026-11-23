@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwtuqaic';
-import { getAccessToken } from './spotify-auth.js?v=mwtuqaic';
+import * as sp from './spotify-api.js?v=mwtvli09';
+import { getAccessToken } from './spotify-auth.js?v=mwtvli09';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -104,6 +104,8 @@ export class SdkPlayer {
   dispose() { clearInterval(this._poll); if (this.player) this.player.disconnect(); }
 }
 
+function forgetSoft() { try { localStorage.removeItem('bb.softVol'); } catch { /* ignore */ } }
+
 /** Can this browser play protected audio (what the in-headset Spotify player needs)? */
 export async function drmCheck() {
   if (!navigator.requestMediaKeySystemAccess) return 'no EME in this browser';
@@ -129,6 +131,7 @@ export class ConnectPlayer {
     this._poll = setInterval(() => this._refresh(), 2000);
   }
   async _refresh() {
+    if (this.soft) return; // silently paused: Spotify keeps running at volume 0, the game stays still
     const sent = performance.now();
     let s;
     try { s = await sp.getPlaybackState(); } catch { return; }
@@ -185,8 +188,34 @@ export class ConnectPlayer {
     if (last) this.clock.sync(last.progress, true, last.at); else this.clock.sync(fromMs, true);
     this.playAt = performance.now(); this.prevReport = last ? { progress: last.progress, at: last.at } : null;
   }
-  async pause() { this.userPaused = true; await sp.pause(this.device.id); this.clock.sync(this.clock.now(), false); }
-  async resume() { this.userPaused = false; this.playAt = performance.now(); await sp.resume(this.device.id); this.clock.sync(this.clock.now(), true); setTimeout(() => this._refresh(), 400); }
+  async pause() {
+    this.userPaused = true;
+    const soft = this.soft; this.soft = null;
+    await sp.pause(this.device.id);
+    if (soft) { await sp.setVolume(soft.vol, this.device.id).catch(() => {}); this.device.volume_percent = soft.vol; forgetSoft(); }
+    else this.clock.sync(this.clock.now(), false);
+  }
+  /** Pause the game but keep Spotify playing at volume 0: on Quest, a paused Spotify app gets put to
+   *  sleep (and vanishes from Spotify Connect) much sooner than a playing one. */
+  async softPause(vol) {
+    const at = this.clock.now();
+    this.soft = { at, vol }; this.userPaused = true;
+    this.clock.sync(at, false);
+    try { localStorage.setItem('bb.softVol', JSON.stringify({ id: this.device.id, vol })); } catch { /* ignore */ }
+    await sp.setVolume(0, this.device.id);
+  }
+  async resume() {
+    this.userPaused = false; this.playAt = performance.now();
+    if (this.soft) { // jump back to where the game paused, then turn the volume back up
+      const { at, vol } = this.soft; this.soft = null;
+      await sp.playTrack(this.track.uri, this.device.id, Math.round(at)).catch(() => {});
+      await sp.setVolume(vol, this.device.id).catch(() => {}); this.device.volume_percent = vol; forgetSoft();
+      this.clock.sync(at, true); this.prevReport = null;
+      setTimeout(() => this._refresh(), 600);
+      return;
+    }
+    await sp.resume(this.device.id); this.clock.sync(this.clock.now(), true); setTimeout(() => this._refresh(), 400);
+  }
   positionMs() { return this.clock.now(); }
   /** One-line sync status for the HUD. */
   syncInfo() {
