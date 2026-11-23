@@ -1,0 +1,407 @@
+import * as THREE from 'three';
+import * as auth from './spotify-auth.js';
+import * as sp from './spotify-api.js';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js';
+import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js';
+import { Game } from './game.js';
+import { Pointers } from './ui3d.js';
+import { Menu } from './menu3d.js';
+import * as prof from './profile.js';
+
+const $ = (id) => document.getElementById(id);
+const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
+const saveSettings = () => localStorage.setItem('bb.settings', JSON.stringify(settings));
+
+/* ---------------- renderer, game, in-world UI ---------------- */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.xr.enabled = true;
+renderer.xr.setReferenceSpaceType('local-floor');
+document.body.prepend(renderer.domElement);
+
+const game = new Game(renderer, { onTap: () => tapTempo(), onPause: () => pause(), onMarkDrop: () => markDropHere() });
+const pointers = new Pointers(renderer, game.scene, game.camera, game.rig);
+const tapper = new TapTempo();
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight);
+  game.camera.aspect = innerWidth / innerHeight; game.camera.updateProjectionMatrix();
+});
+
+/* ---------------- state ---------------- */
+// state: 'lobby' (2D page) | 'select' | 'play' | 'pause' | 'results'
+const S = {
+  state: 'lobby', profile: prof.loadProfile(), liked: [], devices: [],
+  practice: new PracticePlayer(), spotify: null, spotifyError: '', player: null,
+  queue: [], idx: 0, ending: false, maxPos: 0, result: null, nextAt: 0,
+};
+window.__bb = { game, S, menu: null };
+
+const isPractice = (t) => t && t.id.startsWith('practice');
+const inVR = () => renderer.xr.isPresenting;
+
+const menu = new Menu(game.scene, pointers, {
+  lists: () => ({ liked: S.liked, practice: PRACTICE_TRACKS }),
+  loggedIn: () => auth.isLoggedIn(),
+  best: (id) => { const t = prof.loadStats().tracks[id]; return t ? t.best : 0; },
+  settings: () => settings,
+  setSetting: (k, v) => {
+    settings[k] = v; saveSettings();
+    if (k === 'latency') game.latencyMs = v;
+    if (k === 'hitSounds') game.hitSounds = v;
+    menu.refresh();
+  },
+  hitSounds: () => settings.hitSounds,
+  profile: () => prof.summary(S.profile),
+  outputName: () => (S.spotify ? S.spotify.name : S.spotifyError || (auth.isLoggedIn() ? 'Spotify not started' : 'Practice only (not logged in)')),
+  inVR,
+  trackInfo: (t) => {
+    const tempo = getTempo(t), drops = getDrops(t, tempo);
+    const st = prof.loadStats().tracks[t.id];
+    return {
+      tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', default: '(guess: tap A/X in game)' }[tempo.source]}`,
+      drop: { known: 'yes', marked: 'yes (you marked it)', estimated: 'estimated', none: 'none yet (click the stick at the drop to mark it)' }[drops.source],
+      best: st ? `Best ${st.best.toLocaleString()} · played ${st.plays}×` : 'Not played yet',
+    };
+  },
+  onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : S.liked, index),
+  onShareCard: () => prof.shareCard(prof.summary(S.profile)).then(() => game.flash('Profile card saved', 2000)).catch(() => {}),
+  onExit: () => exitToLobby(),
+  current: () => game.track,
+  onPauseAction: (id) => ({ resume, restart: () => startTrack(S.queue[S.idx]), skip: () => finishTrack(false, true), select: () => toSelect() }[id] || (() => {}))(),
+  lastResult: () => S.result,
+  nextInfo: () => {
+    if (S.state !== 'results' || !S.nextAt || settings.autoplay === false) return null;
+    const n = S.queue[(S.idx + 1) % S.queue.length];
+    return n ? { name: n.name, secs: Math.max(0, Math.ceil((S.nextAt - performance.now()) / 1000)) } : null;
+  },
+  onResultsAction: (id) => ({ next: () => startNext(), replay: () => startTrack(S.queue[S.idx]), select: () => toSelect() }[id] || (() => {}))(),
+});
+window.__bb.menu = menu;
+Object.assign(window.__bb, { finishTrack, pause, resume, startNext }); // console debugging
+
+function status(msg, err = false) { const el = $('status'); el.textContent = msg; el.classList.toggle('err', err); }
+
+/* ---------------- main loop ---------------- */
+const clock = new THREE.Clock();
+const hint = $('hudHint');
+let lastSecs = -1;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(0.05, clock.getDelta());
+  game.update(dt);
+  pointers.update(dt);
+  if (S.state === 'play') checkTrackEnd();
+  hint.hidden = S.state !== 'play' || inVR();
+  if (S.state === 'results' && S.nextAt) {
+    const secs = Math.ceil((S.nextAt - performance.now()) / 1000);
+    if (secs !== lastSecs) { lastSecs = secs; menu.results.redraw(); }
+    if (performance.now() >= S.nextAt) startNext();
+  }
+  game.render();
+});
+
+function checkTrackEnd() {
+  if (!S.player || S.ending || !game.track) return;
+  const pos = S.player.positionMs();
+  S.maxPos = Math.max(S.maxPos, pos);
+  const dur = game.track.duration_ms;
+  if (pos >= dur - 300 || (S.maxPos > dur - 4000 && pos < 1500 && !S.player.playing)) finishTrack(true);
+}
+
+/* ---------------- entering the game ---------------- */
+async function enterGame() {
+  // Called from a click, so audio can be unlocked here.
+  await S.practice.init(); S.practice.activate();
+  if (auth.isLoggedIn() && !S.spotify) {
+    try {
+      const out = $('output').value;
+      const p = out === 'sdk' ? new SdkPlayer() : new ConnectPlayer(S.devices.find((d) => d.id === out) || { id: out, name: 'device' });
+      await p.init(); p.activate(); S.spotify = p; S.spotifyError = '';
+    } catch (e) { S.spotifyError = `Spotify audio unavailable: ${e.message}`; console.warn(e); }
+  } else if (S.spotify) S.spotify.activate();
+  game.latencyMs = settings.latency || 0;
+  $('menu').hidden = true; $('profile').hidden = true;
+  layoutForMode();
+  if (S.state === 'lobby') { S.state = 'select'; menu.tab = S.liked.length ? 'liked' : 'practice'; menu.show('select'); }
+  else { if (S.state === 'play') S.state = 'pause'; menu.show(S.state); }
+  $('hudHint').hidden = inVR();
+}
+
+function layoutForMode() {
+  game.spread = inVR() ? 1 : 0.5;
+  game.calibrateHeight();
+  menu.layout(game.headY, !inVR());
+}
+
+function exitToLobby() {
+  if (inVR() && xrSession) { xrSession.end(); return; }
+  if (S.player && S.player.playing) S.player.pause().catch(() => {});
+  if (S.state === 'play') S.state = 'pause';
+  menu.show('hidden');
+  if (S.state !== 'pause') { game.stop(); S.state = 'lobby'; }
+  $('menu').hidden = false; $('hudHint').hidden = true;
+  $('playScreen').textContent = S.state === 'pause' ? 'Resume on screen' : 'Play on screen';
+}
+
+/* ---------------- songs ---------------- */
+function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+
+function playFromList(list, index) {
+  if (!list.length) return;
+  const rest = list.slice(index + 1).concat(list.slice(0, index));
+  S.queue = [list[index], ...(settings.shuffle ? shuffle(rest) : rest)];
+  S.idx = 0;
+  startTrack(S.queue[0]);
+}
+
+async function startTrack(track) {
+  if (!track) return;
+  const player = isPractice(track) ? S.practice : S.spotify;
+  if (!player) {
+    game.flash(S.spotifyError || 'Spotify playback is not connected', 4000);
+    menu.show('select'); S.state = 'select'; return;
+  }
+  for (const p of [S.practice, S.spotify]) if (p && p !== player && p.playing) p.pause().catch(() => {});
+  S.player = player; game.setPlayer(player);
+  // Hit sounds default: on for practice, off over Spotify songs (Spotify forbids mixing other audio in).
+  game.hitSounds = settings.hitSounds ?? isPractice(track);
+  S.maxPos = 0; S.ending = false; S.nextAt = 0; tapper.reset();
+  S.state = 'play'; menu.show('hidden');
+  game.loadTrack(track, getTempo(track), settings.difficulty || 'normal');
+  try { await player.play(track); }
+  catch (e) {
+    let msg = e.message;
+    if (e.status === 404) msg = 'Spotify device not found: open Spotify on it, or use the headset output';
+    if (e.status === 403) msg = 'Spotify refused playback (Premium required)';
+    game.stop(); S.state = 'select'; menu.show('select'); game.flash(msg, 5000); S.spotifyError = msg; menu.refresh();
+  }
+}
+
+function rankFor(acc) { return acc >= 95 ? 'S' : acc >= 85 ? 'A' : acc >= 70 ? 'B' : acc >= 50 ? 'C' : 'D'; }
+
+function finishTrack(ended, skipToNext = false) {
+  if (S.ending || !game.track) return;
+  S.ending = true;
+  const r = game.run, track = game.track;
+  const played = (S.player ? S.player.positionMs() : 0) > 30000;
+  let isBest = false;
+  if (ended || played) isBest = prof.recordRun(track, r).isBest;
+  const accuracy = r.hits + r.misses ? Math.round((100 * r.hits) / (r.hits + r.misses)) : 0;
+  if (skipToNext) { startNext(); return; }
+  if (S.player && S.player.playing) S.player.pause().catch(() => {});
+  S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, breakers: r.breakers, isBest };
+  game.stop(); S.state = 'results';
+  S.nextAt = settings.autoplay !== false && S.queue.length > 1 ? performance.now() + 6000 : 0;
+  menu.show('results');
+}
+
+function startNext() {
+  if (!S.queue.length) return toSelect();
+  S.idx = (S.idx + 1) % S.queue.length;
+  startTrack(S.queue[S.idx]);
+}
+
+function toSelect() {
+  if (S.player && S.player.playing) S.player.pause().catch(() => {});
+  game.stop(); S.state = 'select'; S.nextAt = 0;
+  menu.show('select');
+}
+
+function pause() {
+  if (S.state !== 'play') return;
+  if (S.player) S.player.pause().catch(() => {});
+  S.state = 'pause'; menu.show('pause');
+}
+async function resume() {
+  if (S.state !== 'pause') return;
+  menu.show('hidden'); S.state = 'play';
+  if (S.player) { S.player.activate(); await S.player.resume().catch(() => {}); }
+}
+
+/* ---------------- tempo + drop marking ---------------- */
+function tapTempo() {
+  if (S.state !== 'play' || !S.player || !S.player.playing) return;
+  const res = tapper.tap(game.songPos());
+  if (!res) { game.flash(`Tap… ${tapper.taps.length}/4`, 800); return; }
+  const tempo = { bpm: res.bpm, offsetMs: res.offsetMs, source: 'tapped' };
+  if (!game.track.bpm) saveTempo(game.track, tempo);
+  game.retime(tempo);
+  game.flash(`Tempo locked: ${Math.round(res.bpm)} BPM`, 1500);
+}
+function nudge(ms) {
+  if (S.state !== 'play') return;
+  const tempo = { ...game.tempo, offsetMs: game.tempo.offsetMs + ms, source: game.tempo.source === 'default' ? 'tapped' : game.tempo.source };
+  if (!game.track.bpm) saveTempo(game.track, tempo);
+  game.retime(tempo);
+  game.flash(`Beat offset ${Math.round(tempo.offsetMs)} ms`, 1000);
+}
+function markDropHere() {
+  if (S.state !== 'play' || !game.track) return;
+  if (isPractice(game.track)) { game.flash('Practice tracks already know their drop', 1500); return; }
+  const t = markDrop(game.track, game.tempo, game.songPos());
+  const mm = `${Math.floor(t / 60000)}:${String(Math.floor(t / 1000) % 60).padStart(2, '0')}`;
+  game.flash(`Drop marked at ${mm}: the Drop Breaker fires there next time`, 2500);
+}
+
+/* ---------------- WebXR ---------------- */
+let xrSession = null;
+if (navigator.xr) navigator.xr.isSessionSupported('immersive-vr').then((ok) => { $('enterVR').hidden = !ok; }).catch(() => {});
+$('enterVR').onclick = async () => {
+  try {
+    if (S.spotify) S.spotify.activate();
+    S.practice.init().then(() => S.practice.activate());
+    xrSession = await navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking'] });
+    await renderer.xr.setSession(xrSession);
+    xrSession.addEventListener('end', () => {
+      xrSession = null; game.onXrEnd();
+      if (S.state === 'play') pause();
+      menu.show('hidden'); $('menu').hidden = false;
+      $('playScreen').textContent = S.state === 'lobby' ? 'Play on screen' : 'Resume on screen';
+    });
+    await enterGame();
+    setTimeout(layoutForMode, 600); // once the headset reports a real head height
+  } catch (e) { status(`VR failed: ${e.message}`, true); }
+};
+$('playScreen').onclick = () => enterGame();
+
+// Installed as the immersive Quest app (start URL has ?vr=1): go straight into VR.
+// The icon click counts as user activation, so requestSession is allowed on load.
+if (new URLSearchParams(location.search).has('vr') && navigator.xr) {
+  navigator.xr.isSessionSupported('immersive-vr').then((ok) => { if (ok) $('enterVR').onclick(); }).catch(() => {});
+}
+$('practice').onclick = async () => { menu.tab = 'practice'; await enterGame(); menu.tab = 'practice'; menu.refresh(); };
+
+/* ---------------- desktop input ---------------- */
+const canvas = renderer.domElement;
+canvas.addEventListener('pointermove', (e) => {
+  const x = (e.clientX / innerWidth) * 2 - 1, y = -(e.clientY / innerHeight) * 2 + 1;
+  game.desktopAim(x, y); pointers.desktopMove(x, y);
+  canvas.style.cursor = pointers.desktopHit && pointers.desktopHit.id ? 'pointer' : S.state === 'play' ? 'crosshair' : 'default';
+});
+canvas.addEventListener('pointerdown', (e) => {
+  if (S.state === 'play') game.desktopPunch(e.button === 2 ? 'R' : 'L');
+  else pointers.desktopClick();
+});
+canvas.addEventListener('wheel', (e) => { pointers.desktopWheel(Math.sign(e.deltaY) * 1.5); }, { passive: true });
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (S.state === 'lobby') return;
+  if (e.key === 'Escape') { if (S.state === 'play') pause(); else if (S.state === 'pause') resume(); else exitToLobby(); return; }
+  if (S.state !== 'play' || e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k === 'd') game.desktopPunch('L');
+  else if (k === 'k') game.desktopPunch('R');
+  else if (k === ' ') { e.preventDefault(); game.desktopCharge(true); }
+  else if (k === 'f') game.tryFocus();
+  else if (k === 't') tapTempo();
+  else if (k === 'm') markDropHere();
+  else if (k === 'n') finishTrack(false, true);
+  else if (k === '[') nudge(-10);
+  else if (k === ']') nudge(10);
+});
+addEventListener('keyup', (e) => { if (e.key === ' ') game.desktopCharge(false); });
+
+/* ---------------- lobby options ---------------- */
+$('difficulty').value = settings.difficulty || 'normal';
+$('difficulty').onchange = (e) => { settings.difficulty = e.target.value; saveSettings(); };
+$('latency').value = settings.latency || 0;
+const latLabel = () => ($('latVal').textContent = `${$('latency').value} ms`);
+latLabel();
+$('latency').oninput = (e) => { settings.latency = +e.target.value; game.latencyMs = settings.latency; latLabel(); saveSettings(); };
+$('shuffle').checked = !!settings.shuffle;
+$('shuffle').onchange = (e) => { settings.shuffle = e.target.checked; saveSettings(); };
+$('hitSounds').checked = !!settings.hitSounds;
+$('hitSounds').onchange = (e) => { settings.hitSounds = e.target.checked; game.hitSounds = e.target.checked; saveSettings(); };
+
+/* ---------------- Spotify setup / login ---------------- */
+$('redir').textContent = auth.redirectUri();
+$('copyRedir').onclick = () => navigator.clipboard.writeText(auth.redirectUri()).then(() => status('Redirect URI copied.'));
+$('saveId').onclick = () => {
+  const v = $('clientId').value.trim();
+  if (!/^[0-9a-f]{32}$/i.test(v)) { status('That doesn\'t look like a Client ID (32 hex characters).', true); return; }
+  auth.setClientId(v); status('Client ID saved.'); renderAuth();
+};
+$('editId').onclick = () => { $('setup').hidden = false; $('clientId').value = auth.getClientId(); };
+$('login').onclick = () => auth.login().catch((e) => status(e.message, true));
+$('logout').onclick = () => {
+  auth.logout(); localStorage.removeItem('bb.profile'); S.profile = null; S.liked = [];
+  if (S.spotify) { S.spotify.dispose(); S.spotify = null; }
+  status('Disconnected from Spotify. Your game stats are kept; reset them under Profile.'); renderAuth();
+};
+$('refreshDevices').onclick = refreshDevices;
+$('output').onchange = () => { if (S.spotify) { S.spotify.dispose(); S.spotify = null; } };
+
+async function refreshDevices() {
+  try {
+    S.devices = (await sp.getDevices()).filter((d) => !d.is_restricted && d.name !== 'BeatBrawler VR');
+    const sel = $('output'), cur = sel.value;
+    sel.innerHTML = '<option value="sdk">This headset/browser (Web Playback SDK)</option>' +
+      S.devices.map((d) => `<option value="${escapeHtml(d.id)}">Spotify Connect: ${escapeHtml(d.name)} (${escapeHtml(d.type)})</option>`).join('');
+    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : 'sdk';
+    status(S.devices.length ? `${S.devices.length} Connect device(s) found.` : 'No Connect devices. Open Spotify on your phone/computer to use one.');
+  } catch (e) { status(`Devices: ${e.message}`, true); }
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+function renderAuth() {
+  const hasId = !!auth.getClientId(), inn = auth.isLoggedIn();
+  $('setup').hidden = hasId;
+  $('loggedOut').hidden = !hasId || inn;
+  $('loggedIn').hidden = !inn;
+  if (inn && S.profile) {
+    $('avatar').src = S.profile.avatar || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E';
+    $('meName').textContent = S.profile.name;
+    $('meInfo').textContent = S.profile.product === 'premium' ? 'Spotify Premium' : `Spotify ${S.profile.product || 'account'}: Premium is needed to play songs`;
+  }
+}
+
+async function loadSpotify() {
+  try {
+    S.profile = await sp.getProfile(); prof.saveProfile(S.profile); renderAuth();
+    $('libInfo').textContent = 'Loading Liked Songs…';
+    S.liked = await sp.getLikedSongs({
+      onPage: (t) => { S.liked = t.filter((x) => x.playable); $('libInfo').textContent = `Loading Liked Songs… ${t.length}`; menu.refresh(); },
+    });
+    $('libInfo').textContent = S.liked.length ? `${S.liked.length} Liked Songs ready as levels.` : 'No Liked Songs found. Like some songs in Spotify, or use Practice.';
+    menu.refresh();
+  } catch (e) {
+    console.error(e);
+    if (e.status === 403) status('Spotify said 403: add your Spotify account under User Management in the app dashboard (Development Mode).', true);
+    else status(e.message, true);
+  }
+}
+
+/* ---------------- 2D profile panel ---------------- */
+function renderProfile() {
+  const sum = prof.summary(S.profile);
+  const av = sum.avatar ? `<img class="av" src="${escapeHtml(sum.avatar)}" alt="">` : `<div class="av">${escapeHtml(sum.name.charAt(0).toUpperCase())}</div>`;
+  const rows = (list, right) => list.length ? list.map((t) => `<li><span>${escapeHtml(t.name)} · <span class="muted">${escapeHtml(t.artist)}</span></span><span>${right(t)}</span></li>`).join('') : '<li class="muted">No songs played yet</li>';
+  $('profileView').innerHTML = `<div class="pcard">${av}<div class="nm">${escapeHtml(sum.name)}</div>
+    <div class="stats"><div><b>${sum.totalScore.toLocaleString()}</b><span>TOTAL SCORE</span></div><div><b>${sum.bestCombo}</b><span>BEST COMBO</span></div><div><b>${sum.accuracy}%</b><span>ACCURACY</span></div></div>
+    <div class="plist"><h3>HIGH SCORES</h3><ol>${rows(sum.highScores, (t) => t.score.toLocaleString())}</ol>
+    <h3>MOST PLAYED</h3><ol>${rows(sum.topPlayed, (t) => `${t.plays}×`)}</ol></div>
+    <p class="small muted">${sum.games} rounds · ${sum.supers} super punches</p></div>`;
+}
+$('openProfile').onclick = () => { renderProfile(); $('profile').hidden = false; $('menu').hidden = true; $('shareStatus').textContent = ''; };
+$('closeProfile').onclick = () => { $('profile').hidden = true; $('menu').hidden = false; };
+$('shareCard').onclick = async () => {
+  try { const r = await prof.shareCard(prof.summary(S.profile)); $('shareStatus').textContent = r === 'shared' ? 'Shared.' : 'Card saved as beatbrawler-profile.png'; }
+  catch (e) { if (e.name !== 'AbortError') $('shareStatus').textContent = e.message; }
+};
+$('copyLink').onclick = async () => {
+  const url = prof.shareUrl(prof.summary(S.profile));
+  const local = /^http:\/\/(127\.0\.0\.1|localhost)/.test(url);
+  try { await navigator.clipboard.writeText(url); $('shareStatus').textContent = local ? 'Link copied. It only opens on this machine until you host the game (README: Sharing).' : 'Link copied.'; }
+  catch { prompt('Copy this link:', url); }
+};
+$('resetStats').onclick = () => { if (confirm('Reset all scores and play counts on this device?')) { prof.clearStats(); renderProfile(); } };
+
+/* ---------------- boot ---------------- */
+(async () => {
+  layoutForMode();
+  try { if (await auth.handleRedirect()) status('Logged in.'); } catch (e) { status(e.message, true); }
+  renderAuth();
+  if (auth.isLoggedIn()) loadSpotify();
+})();

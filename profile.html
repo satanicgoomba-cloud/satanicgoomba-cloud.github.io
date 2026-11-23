@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BeatBrawler Profile</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>body { overflow: auto; } .overlay { position: static; min-height: 100vh; }</style>
+</head>
+<body>
+  <div class="overlay">
+    <div class="panel">
+      <header class="brand"><h1>BEAT<span>BRAWLER</span> VR</h1></header>
+      <div id="view"><p class="muted">Loading profile…</p></div>
+      <div class="actions"><a href="./"><button class="big">Play BeatBrawler</button></a></div>
+    </div>
+  </div>
+  <script type="module">
+    import { decodeShare } from './src/profile.js';
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const view = document.getElementById('view');
+    try {
+      const s = decodeShare(location.hash.slice(1));
+      document.title = `${s.name} · BeatBrawler Profile`;
+      const av = s.avatar ? `<img class="av" src="${esc(s.avatar)}" alt="" referrerpolicy="no-referrer">` : `<div class="av">${esc(s.name.charAt(0).toUpperCase())}</div>`;
+      const rows = (list, right) => list.length ? list.map((t) => `<li><span>${esc(t.name)} · <span class="muted">${esc(t.artist)}</span></span><span>${right(t)}</span></li>`).join('') : '<li class="muted">None yet</li>';
+      view.innerHTML = `<div class="pcard">${av}<div class="nm">${esc(s.name)}</div>
+        <div class="stats"><div><b>${s.totalScore.toLocaleString()}</b><span>TOTAL SCORE</span></div><div><b>${s.bestCombo}</b><span>BEST COMBO</span></div><div><b>${s.accuracy}%</b><span>ACCURACY</span></div></div>
+        <div class="plist"><h3>HIGH SCORES</h3><ol>${rows(s.highScores, (t) => t.score.toLocaleString())}</ol>
+        <h3>MOST PLAYED</h3><ol>${rows(s.topPlayed, (t) => `${t.plays}×`)}</ol></div>
+        <p class="small muted">${s.games} rounds played</p></div>`;
+    } catch {
+      view.innerHTML = '<p>This profile link is incomplete or broken.</p>';
+    }
+  </script>
+</body>
+</html>

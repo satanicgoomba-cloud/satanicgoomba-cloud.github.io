@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BeatBrawler VR</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <meta name="theme-color" content="#100722" />
+  <script>window.BB_CONFIG = {};</script>
+  <script src="config.js" onerror="void 0"></script>
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }
+  </script>
+</head>
+<body>
+  <div id="menu" class="overlay">
+    <div class="panel">
+      <header class="brand">
+        <h1>BEAT<span>BRAWLER</span> VR</h1>
+        <p class="tag">Box the missiles. Break the drop. Your Liked Songs are the playlist.</p>
+      </header>
+
+      <section id="setup" hidden>
+        <h2>Connect your Spotify app</h2>
+        <ol class="small">
+          <li>Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> (tick <b>Web API</b> and <b>Web Playback SDK</b>).</li>
+          <li>Add this Redirect URI exactly: <code id="redir"></code> <button class="link" id="copyRedir" type="button">copy</button></li>
+          <li>Paste the app's Client ID here (it isn't a secret, and no client secret is needed):</li>
+        </ol>
+        <div class="row"><input id="clientId" placeholder="Spotify Client ID" autocomplete="off" spellcheck="false" /><button id="saveId">Save</button></div>
+      </section>
+
+      <section id="loggedOut" hidden>
+        <button id="login" class="big spotify">Log in with Spotify</button>
+        <p class="small muted">Needs Spotify Premium. Personal use only (see README: Spotify limits).</p>
+        <button id="editId" class="link" type="button">Change Client ID</button>
+      </section>
+
+      <section id="loggedIn" hidden>
+        <div class="me">
+          <img id="avatar" alt="" />
+          <div><div id="meName" class="meName"></div><div id="meInfo" class="small muted"></div></div>
+          <button id="logout" class="link" type="button">Disconnect</button>
+        </div>
+        <div id="libInfo" class="small"></div>
+        <label class="field">Play audio on
+          <select id="output"><option value="sdk">This headset/browser (Web Playback SDK)</option></select>
+        </label>
+        <button id="refreshDevices" class="link" type="button">Refresh Spotify Connect devices</button>
+      </section>
+
+      <section id="options">
+        <div class="grid2">
+          <label class="field">Difficulty
+            <select id="difficulty"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select>
+          </label>
+          <label class="field">Audio latency <span id="latVal">0 ms</span>
+            <input id="latency" type="range" min="-200" max="400" step="10" value="0" />
+          </label>
+        </div>
+        <label class="check"><input id="shuffle" type="checkbox" /> Shuffle Liked Songs</label>
+        <label class="check"><input id="hitSounds" type="checkbox" /> Hit sounds</label>
+      </section>
+
+      <section class="actions">
+        <button id="enterVR" class="big" hidden>Enter VR</button>
+        <button id="playScreen" class="big alt">Play on screen</button>
+        <button id="practice" class="alt">Practice (no Spotify)</button>
+        <button id="openProfile" class="alt">Profile &amp; share</button>
+      </section>
+      <p id="status" class="status" role="status"></p>
+      <details class="small help">
+        <summary>Controls</summary>
+        <p><b>Menus (VR):</b> point with the laser from either glove and pull the <b>trigger</b> to select. Use the thumbstick to scroll the song wall.</p>
+        <p><b>Fight (VR):</b> punch missiles as they reach the ring around you: pink with the left glove, blue with the right. Fill the meter, then <b>hold both grips</b> and punch for a <b>Super Punch</b>, or squeeze <b>both triggers</b> for <b>Focus</b>. When a <b>drop</b> is coming, a swarm gathers: <b>double punch</b> (both fists forward) on the last bar before the drop to fire the <b>Drop Breaker</b>. <b>A/X</b>: tap the beat to lock the tempo. <b>Stick click</b>: mark "the drop is here" for this song. <b>B/Y</b>: pause.</p>
+        <p><b>Screen:</b> click menus with the mouse. In a fight, aim with the mouse and left/right click (or D/K) to punch. Space: Super Punch (hold, release) or Drop Breaker. F: Focus. T: tap tempo. M: mark drop. [ and ]: nudge the beat. N: next song. Esc: pause.</p>
+      </details>
+    </div>
+  </div>
+
+  <div id="profile" class="overlay" hidden>
+    <div class="panel">
+      <h2>Your profile</h2>
+      <div id="profileView"></div>
+      <div class="actions">
+        <button id="shareCard" class="big">Share card (PNG)</button>
+        <button id="copyLink" class="alt">Copy share link</button>
+        <button id="resetStats" class="link" type="button">Reset stats</button>
+        <button id="closeProfile" class="alt">Back</button>
+      </div>
+      <p id="shareStatus" class="status small"></p>
+    </div>
+  </div>
+
+  <div id="hudHint" class="hint" hidden>Esc: pause · Click/D/K: punch · Space: super/breaker · F: focus · T: tap tempo · M: mark drop</div>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

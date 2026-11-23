@@ -1,0 +1,26 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.beatbrawler.quest",
+      "sha256_cert_fingerprints": [
+        "DB:10:5C:E8:D3:52:A8:32:44:21:9E:5B:20:AB:8E:94:B5:03:0D:26:A2:71:7B:98:15:74:61:AD:BA:F8:BE:1A"
+      ]
+    }
+  },
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.beatbrawler.quest.window",
+      "sha256_cert_fingerprints": [
+        "DB:10:5C:E8:D3:52:A8:32:44:21:9E:5B:20:AB:8E:94:B5:03:0D:26:A2:71:7B:98:15:74:61:AD:BA:F8:BE:1A"
+      ]
+    }
+  }
+]
