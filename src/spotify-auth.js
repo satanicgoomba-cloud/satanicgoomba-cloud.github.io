@@ -20,12 +20,16 @@ export const IMMERSIVE_PKG = 'io.beatbrawler.quest';
 const APPS = { i: IMMERSIVE_PKG, w: 'io.beatbrawler.quest.window' };
 const APP_CODE = Object.fromEntries(Object.entries(APPS).map(([k, v]) => [v, k]));
 try {
+  // Most reliable: the APKs' start URLs carry ?app=i (immersive) / ?app=w (windowed setup).
+  const qa = new URLSearchParams(location.search).get('app');
   const m = /^android-app:\/\/([\w.]+)/.exec(document.referrer || '');
-  if (m && APP_CODE[m[1]]) sessionStorage.setItem(K.app, m[1]);
+  if (qa && APPS[qa]) sessionStorage.setItem(K.app, APPS[qa]);
+  else if (m && APP_CODE[m[1]]) sessionStorage.setItem(K.app, m[1]);
 } catch { /* ignore */ }
 /** True inside the Quest app (TWA): logins can't leave the app there, so they go through the Quest Browser. */
 export function inApp() {
-  return !!appPackage() || !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  const mq = (q) => !!(window.matchMedia && matchMedia(q).matches);
+  return !!appPackage() || mq('(display-mode: standalone)') || mq('(display-mode: fullscreen)') || mq('(display-mode: minimal-ui)');
 }
 
 /* ---- moving a login from the Quest Browser into the app (same headset, nothing leaves it) ----

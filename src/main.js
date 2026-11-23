@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js';
-import * as sp from './spotify-api.js';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js';
-import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js';
-import { Game } from './game.js';
-import { Pointers } from './ui3d.js';
-import { Menu } from './menu3d.js';
-import * as prof from './profile.js';
+import * as auth from './spotify-auth.js?v=mwtkl805';
+import * as sp from './spotify-api.js?v=mwtkl805';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtkl805';
+import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtkl805';
+import { Game } from './game.js?v=mwtkl805';
+import { Pointers } from './ui3d.js?v=mwtkl805';
+import { Menu } from './menu3d.js?v=mwtkl805';
+import * as prof from './profile.js?v=mwtkl805';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -333,13 +333,10 @@ $('login').onclick = () => startLogin();
 async function startLogin() {
   // Inside the Quest app, opening Spotify's page leaves (and closes) the app, so never navigate away:
   // show how to log in with the Quest Browser and bring the login back.
-  if (auth.inApp()) {
-    if (xrSession) { menu.loginHelp = true; menu.corner.redraw(); }
-    else { $('appLogin').hidden = false; $('appLogin').scrollIntoView({ behavior: 'smooth' }); }
-    return;
-  }
+  // In VR, never leave the game for a login (on Quest that can close the app): explain the browser route.
+  if (xrSession) { menu.loginHelp = true; menu.corner.redraw(); return; }
+  if (auth.inApp()) { $('appLogin').hidden = false; $('appLogin').scrollIntoView({ behavior: 'smooth' }); return; }
   if (!auth.getClientId()) { if (xrSession) await xrSession.end().catch(() => {}); status('Enter your Spotify Client ID first.', true); $('setup').hidden = false; return; }
-  if (xrSession) await xrSession.end().catch(() => {}); // the Spotify page is 2D
   auth.login().catch((e) => status(e.message, true));
 }
 // Inside the Quest app, Spotify's login page opens in a browser tab (so Google/Facebook sign-in work).
