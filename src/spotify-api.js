@@ -1,4 +1,4 @@
-import { getAccessToken } from './spotify-auth.js?v=mwto3s5n';
+import { getAccessToken } from './spotify-auth.js?v=mwtoi7ao';
 
 const API = 'https://api.spotify.com/v1';
 
@@ -61,6 +61,13 @@ export async function getLikedSongs({ max = 1000, onPage } = {}) {
     url = j.next;
   }
   return out.filter((t) => t.playable);
+}
+
+/** Search Spotify's catalogue for songs (playable in your country). */
+export async function searchTracks(q, limit = 30) {
+  if (!q || !q.trim()) return [];
+  const j = await api(`/search?type=track&limit=${limit}&market=from_token&q=${encodeURIComponent(q.trim())}`);
+  return ((j && j.tracks && j.tracks.items) || []).filter((t) => t && t.id).map(slimTrack).filter((t) => t.playable);
 }
 
 export const getDevices = async () => (await api('/me/player/devices')).devices || [];

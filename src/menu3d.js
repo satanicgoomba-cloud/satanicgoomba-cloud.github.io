@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwto3s5n';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtoi7ao';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -29,7 +29,10 @@ export class Menu {
     this.corner = new Panel('corner', 0.9, 1.35);
     this.pause = new Panel('pause', 0.85, 0.95);
     this.results = new Panel('results', 1.1, 1.05);
-    this.all = [this.songs, this.card, this.corner, this.pause, this.results];
+    this.keys = new Panel('keys', 1.2, 0.56);           // on-screen keyboard for Spotify search
+    this.keys.mesh.renderOrder = 10;                     // drawn over the other panels
+    this.keysOpen = false;
+    this.all = [this.songs, this.card, this.corner, this.pause, this.results, this.keys];
     for (const p of this.all) { scene.add(p.mesh); p.visible = false; }
     pointers.panels = this.all;
     this.songs.draw = (g, p) => this._drawSongs(g, p);
@@ -37,13 +40,14 @@ export class Menu {
     this.corner.draw = (g, p) => this._drawCorner(g, p);
     this.pause.draw = (g, p) => this._drawPause(g, p);
     this.results.draw = (g, p) => this._drawResults(g, p);
+    this.keys.draw = (g, p) => this._drawKeys(g, p);
     this.songs.onClick = (id) => this._clickSongs(id);
     this.songs.onScroll = (d) => this._scrollBy(d);
     this.card.onClick = (id) => this._clickCard(id);
     this.corner.onClick = (id) => this._clickCorner(id);
     this.pause.onClick = (id) => this.api.onPauseAction(id);
     this.results.onClick = (id) => this.api.onResultsAction(id);
-    this.ROWS = 8;
+    this.keys.onClick = (id) => this._clickKeys(id);
   }
 
   layout(headY, desktop) {
@@ -54,6 +58,9 @@ export class Menu {
     placeOnArc(this.corner.mesh, -az, d, y);
     placeOnArc(this.pause.mesh, 0, desktop ? 1.7 : 1.9, headY - 0.1);
     placeOnArc(this.results.mesh, 0, desktop ? 1.8 : 2.0, headY - 0.1);
+    // keyboard: closer than the fight card and a little low, tilted up toward your face
+    placeOnArc(this.keys.mesh, 0, desktop ? 1.9 : 1.15, headY - (desktop ? 0.45 : 0.42));
+    this.keys.mesh.lookAt(0, headY, 0);
   }
 
   show(screen) {
@@ -62,6 +69,7 @@ export class Menu {
     this.songs.visible = this.card.visible = this.corner.visible = sel;
     this.pause.visible = screen === 'pause';
     this.results.visible = screen === 'results';
+    this.keys.visible = sel && this.tab === 'search' && this.keysOpen;
     this.pointers.enabled = screen !== 'hidden';
     this.refresh();
   }
@@ -69,6 +77,8 @@ export class Menu {
   refresh() { for (const p of this.all) if (p.visible) p.redraw(); }
 
   list() { return this.api.lists()[this.tab] || []; }
+  get ROWS() { return this.tab === 'search' ? 7 : 8; }
+  set ROWS(v) { /* fixed per tab */ }
   selected() { return this.list()[this.sel]; }
 
   _scrollBy(d) {
@@ -81,15 +91,29 @@ export class Menu {
   _drawSongs(g, p) {
     const lists = this.api.lists();
     const W = p.W;
-    p.button('tab:liked', 24, 22, 300, 60, `LIKED SONGS${lists.liked.length ? ` (${lists.liked.length})` : ''}`, { style: 'tab', selected: this.tab === 'liked', size: 22 });
-    p.button('tab:practice', 336, 22, 200, 60, 'PRACTICE', { style: 'tab', selected: this.tab === 'practice', size: 22 });
+    p.button('tab:liked', 20, 22, 196, 60, `LIKED${lists.liked.length ? ` (${lists.liked.length})` : ''}`, { style: 'tab', selected: this.tab === 'liked', size: 20 });
+    p.button('tab:search', 224, 22, 152, 60, 'SEARCH', { style: 'tab', selected: this.tab === 'search', size: 20 });
+    p.button('tab:practice', 384, 22, 150, 60, 'PRACTICE', { style: 'tab', selected: this.tab === 'practice', size: 20 });
     p.button('up', W - 82, 22, 58, 60, '▲', { size: 26 });
     const list = this.list();
-    const rowH = 78, top = 100;
+    const rowH = 78;
+    let top = 100;
+    if (this.tab === 'search') { // search box: tap it to open the keyboard
+      const st = this.api.searchState();
+      p.button('searchbox', 16, 96, W - 32, 64, '', { style: 'row' });
+      rr(g, 16, 96, W - 32, 64, 16); g.fillStyle = this.keysOpen ? 'rgba(0,229,255,0.16)' : 'rgba(255,255,255,0.08)'; g.fill();
+      g.strokeStyle = this.keysOpen ? C.cyan : C.line; g.lineWidth = 3; g.stroke();
+      g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = FONT(600, 24);
+      g.fillStyle = st.q ? C.text : C.muted;
+      g.fillText(fitText(g, st.q ? st.q + (this.keysOpen ? '▏' : '') : 'Search Spotify (song or artist)…', W - 80), 34, 129);
+      top = 172;
+    }
     const first = Math.floor(this.scroll);
     if (!list.length) {
       g.fillStyle = C.muted; g.font = FONT(600, 24); g.textAlign = 'left'; g.textBaseline = 'top';
-      const msg = this.tab === 'liked' ? (this.api.loggedIn() ? 'Loading your Liked Songs…' : 'Log in with Spotify on the start page to see your Liked Songs. Practice works without it.') : '';
+      const st = this.api.searchState();
+      const msg = this.tab === 'liked' ? (this.api.loggedIn() ? 'Loading your Liked Songs…' : 'Log in with Spotify on the start page to see your Liked Songs. Practice works without it.')
+        : this.tab === 'search' ? (!this.api.loggedIn() ? 'Log in with Spotify to search.' : st.busy ? 'Searching…' : st.error ? st.error : st.q ? 'No songs found.' : 'Tap the box above and type a song or artist.') : '';
       wrap(g, msg, 34, top + 20, W - 68, 32);
     }
     for (let i = 0; i < this.ROWS; i++) {
@@ -119,12 +143,48 @@ export class Menu {
   }
 
   _clickSongs(id) {
-    if (id.startsWith('tab:')) { this.tab = id.slice(4); this.sel = 0; this.scroll = 0; }
+    if (id === 'searchbox') { this.keysOpen = !this.keysOpen; this.show(this.screen); return; }
+    if (id.startsWith('tab:')) { this.tab = id.slice(4); this.sel = 0; this.scroll = 0; this.keysOpen = this.tab === 'search' && !this.api.searchState().q; this.show(this.screen); }
     else if (id === 'up') this._scrollBy(-this.ROWS + 1);
     else if (id === 'down') this._scrollBy(this.ROWS - 1);
     else if (id.startsWith('row:')) this.sel = +id.slice(4);
-    if (this.api.onSelectTrack && this.tab === 'liked') this.api.onSelectTrack(this.list(), this.sel);
+    if (id.startsWith('row:') && this.tab === 'search' && this.keysOpen) { this.keysOpen = false; this.show(this.screen); }
+    if (this.api.onSelectTrack && this.tab !== 'practice') this.api.onSelectTrack(this.list(), this.sel);
     this.songs.redraw(); this.card.redraw();
+  }
+
+  /* ---------------- on-screen keyboard (search) ---------------- */
+  _drawKeys(g, p) {
+    const W = p.W, rows = ['1234567890', 'QWERTYUIOP', 'ASDFGHJKL\'', 'ZXCVBNM-&⌫'];
+    const kw = 56, kh = 58, gap = 6, top = 22;
+    rows.forEach((row, r) => {
+      const n = row.length, x0 = (W - (n * kw + (n - 1) * gap)) / 2;
+      [...row].forEach((ch, i) => p.button(ch === '⌫' ? 'k:back' : `k:${ch}`, x0 + i * (kw + gap), top + r * (kh + gap), kw, kh, ch, { size: 24 }));
+    });
+    const y = top + 4 * (kh + gap);
+    p.button('k:clear', 30, y, 150, kh, 'CLEAR', { size: 20 });
+    p.button('k: ', 190, y, W - 380, kh, 'SPACE', { size: 20 });
+    p.button('k:done', W - 180, y, 150, kh, 'DONE', { style: 'primary', size: 22 });
+  }
+  _clickKeys(id) {
+    const st = this.api.searchState();
+    let q = st.q || '';
+    if (id === 'k:back') q = q.slice(0, -1);
+    else if (id === 'k:clear') q = '';
+    else if (id === 'k:done') { this.keysOpen = false; this.show(this.screen); this.api.onSearch(q, true); return; }
+    else if (id.startsWith('k:')) q = (q + id.slice(2).toLowerCase()).slice(0, 60);
+    this.sel = 0; this.scroll = 0;
+    this.api.onSearch(q, false);
+    this.songs.redraw();
+  }
+  /** Typing on a real keyboard (screen mode). Returns true if the key was used. */
+  typeKey(key) {
+    if (this.screen !== 'select' || this.tab !== 'search') return false;
+    if (key === 'Enter') { this._clickKeys('k:done'); return true; }
+    if (key === 'Backspace') { this._clickKeys('k:back'); return true; }
+    if (key === 'Escape' && this.keysOpen) { this.keysOpen = false; this.show(this.screen); return true; }
+    if (key.length === 1) { if (!this.keysOpen) { this.keysOpen = true; this.show(this.screen); } this._clickKeys(`k:${key}`); return true; }
+    return false;
   }
 
   /* ---------------- fight card (centre) ---------------- */

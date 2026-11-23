@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwto3s5n';
-import * as sp from './spotify-api.js?v=mwto3s5n';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwto3s5n';
+import * as auth from './spotify-auth.js?v=mwtoi7ao';
+import * as sp from './spotify-api.js?v=mwtoi7ao';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtoi7ao';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwto3s5n';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwto3s5n';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwto3s5n';
-import { Game } from './game.js?v=mwto3s5n';
-import { Pointers } from './ui3d.js?v=mwto3s5n';
-import { Menu } from './menu3d.js?v=mwto3s5n';
-import * as prof from './profile.js?v=mwto3s5n';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtoi7ao';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtoi7ao';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtoi7ao';
+import { Game } from './game.js?v=mwtoi7ao';
+import { Pointers } from './ui3d.js?v=mwtoi7ao';
+import { Menu } from './menu3d.js?v=mwtoi7ao';
+import * as prof from './profile.js?v=mwtoi7ao';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -34,6 +34,7 @@ addEventListener('resize', () => {
 /* ---------------- state ---------------- */
 // state: 'lobby' (2D page) | 'select' | 'play' | 'pause' | 'results'
 const S = {
+  search: { q: '', results: [], busy: false, error: '' },
   state: 'lobby', profile: prof.loadProfile(), liked: [], devices: [],
   practice: new PracticePlayer(), spotify: null, spotifyError: '', player: null,
   queue: [], idx: 0, ending: false, maxPos: 0, result: null, nextAt: 0,
@@ -44,7 +45,9 @@ const isPractice = (t) => t && t.id.startsWith('practice');
 const inVR = () => renderer.xr.isPresenting;
 
 const menu = new Menu(game.scene, pointers, {
-  lists: () => ({ liked: S.liked, practice: PRACTICE_TRACKS }),
+  lists: () => ({ liked: S.liked, search: S.search.results, practice: PRACTICE_TRACKS }),
+  searchState: () => S.search,
+  onSearch: (q, now) => runSearch(q, now),
   loggedIn: () => auth.isLoggedIn(),
   best: (id) => { const t = prof.loadStats().tracks[id]; return t ? t.best : 0; },
   settings: () => settings,
@@ -68,7 +71,7 @@ const menu = new Menu(game.scene, pointers, {
       lookup: tempo.source === 'default' && !bpmPending.has(t.id) ? lookupDiag(t.id) : '',
     };
   },
-  onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : S.liked, index),
+  onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : tab === 'search' ? S.search.results : S.liked, index),
   onShareCard: () => prof.shareCard(prof.summary(S.profile)).then(() => game.flash('Profile card saved', 2000)).catch(() => {}),
   onExit: () => exitToLobby(),
   onLogin: () => startLogin(),
@@ -123,6 +126,25 @@ function checkTrackEnd() {
   S.maxPos = Math.max(S.maxPos, pos);
   const dur = game.track.duration_ms;
   if (pos >= dur - 300 || (S.maxPos > dur - 4000 && pos < 1500 && !S.player.playing)) finishTrack(true);
+}
+
+/* ---------------- Spotify search ---------------- */
+let searchTimer = 0, searchSeq = 0;
+function runSearch(q, now) {
+  S.search.q = q; S.search.error = '';
+  clearTimeout(searchTimer);
+  if (!q.trim()) { S.search.results = []; S.search.busy = false; menu.refresh(); return; }
+  S.search.busy = true; menu.refresh();
+  searchTimer = setTimeout(async () => { // wait for a pause in typing
+    const id = ++searchSeq;
+    try {
+      const res = await sp.searchTracks(q);
+      if (id !== searchSeq) return; // a newer search is running
+      S.search.results = res; S.search.busy = false;
+      if (res.length) prefetchBpm(res.slice(0, 3));
+    } catch (e) { if (id === searchSeq) { S.search.busy = false; S.search.error = `Search failed: ${e.message}`; } }
+    menu.refresh();
+  }, now ? 0 : 450);
 }
 
 /* ---------------- Spotify audio ---------------- */
@@ -397,6 +419,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   if (S.state === 'lobby') return;
+  if (S.state === 'select' && !e.metaKey && !e.ctrlKey && menu.typeKey(e.key)) { e.preventDefault(); return; } // typing a search
   if (e.key === 'Escape') { if (S.state === 'play') pause(); else if (S.state === 'pause') resume(); else exitToLobby(); return; }
   if (S.state !== 'play' || e.repeat) return;
   const k = e.key.toLowerCase();
