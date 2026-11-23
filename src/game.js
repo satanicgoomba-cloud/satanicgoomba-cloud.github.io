@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { generate, sectionAt } from './beatmap.js?v=mwtn35k1';
+import { generate, sectionAt } from './beatmap.js?v=mwto3s5n';
 
 const LEAD_S = 1.7;          // seconds a missile is visible before its beat
 const FAR_SPEED = 10;        // m/s while flying in
@@ -242,7 +242,7 @@ export class Game {
   setPlayer(p) { this.player = p; }
 
   loadTrack(track, tempo, difficulty) {
-    this.track = track; this.tempo = tempo; this.difficulty = difficulty;
+    this.track = track; this.tempo = tempo; this.difficulty = difficulty; this._lastPos = undefined;
     this.resetRun();
     this._regen();
     this.calibrateHeight();
@@ -253,7 +253,7 @@ export class Game {
   _regen(fromMs = -1) {
     // Song structure (sections with an energy level) shapes how busy each part of the fight is.
     this.sections = (this.track && (this.track.sections || this.structure)) || [];
-    const { notes } = generate(this.track, this.tempo, this.difficulty, { spread: this.spread, sections: this.sections });
+    const { notes } = generate(this.track, this.tempo, this.difficulty, { spread: this.spread, sections: this.sections, beats: this.beats, shiftMs: this.shiftMs || 0 });
     this.notes = fromMs < 0 ? notes : notes.filter((n) => n.t > fromMs + 100);
     this.nextNote = 0;
     this.run.total = notes.length;
@@ -293,6 +293,15 @@ export class Game {
     this._updateWrist(dt);
     if (this.mode === 'play') this._updateInputs(dt, pos);
 
+    // The song position jumped (Spotify corrected us, or a seek): rebuild missiles for the new position
+    // instead of letting them fly backwards.
+    if (playing && this._lastPos !== undefined && (pos < this._lastPos - 400 || pos > this._lastPos + 1500)) {
+      for (const n of this.active) this._release(n);
+      this.active.length = 0;
+      this.nextNote = this.notes.findIndex((n) => n.t - pos > 0.3 * 1000);
+      if (this.nextNote < 0) this.nextNote = this.notes.length;
+    }
+    this._lastPos = playing ? pos : undefined;
     if (playing) {
       while (this.nextNote < this.notes.length && this.notes[this.nextNote].t - pos < LEAD_S * 1000) {
         const n = this.notes[this.nextNote++];
@@ -451,6 +460,7 @@ export class Game {
 
   _hit(n, tt, speed, focus) {
     n.dead = true; n.hit = true;
+    (this.run.errs = this.run.errs || []).push(tt); // timing of each hit, for per-song beat auto-sync
     const a = Math.abs(tt);
     const rating = a < 0.06 ? 'perfect' : a < 0.12 ? 'great' : 'good';
     const base = { perfect: 100, great: 70, good: 40 }[rating];

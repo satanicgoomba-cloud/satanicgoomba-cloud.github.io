@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwtn35k1';
-import { getAccessToken } from './spotify-auth.js?v=mwtn35k1';
+import * as sp from './spotify-api.js?v=mwto3s5n';
+import { getAccessToken } from './spotify-auth.js?v=mwto3s5n';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -55,6 +55,7 @@ export class SdkPlayer {
       this.player.addListener('account_error', fail('Spotify Premium is required for in-browser playback'));
       setTimeout(() => reject(new Error('Spotify player did not become ready')), 10000);
     });
+    ready.catch(() => {}); // handled below; avoids an 'unhandled rejection' if connect() fails first
     this.player.addListener('player_state_changed', (s) => this._onState(s));
     this.player.addListener('playback_error', ({ message }) => console.warn('playback_error', message));
     const ok = await this.player.connect();
@@ -93,6 +94,9 @@ export class SdkPlayer {
       await new Promise((r) => setTimeout(r, 1200));
       await sp.playTrack(track.uri, this.deviceId, 0);
     }
+    // wait (up to 6 s) for the player to report that this song is playing
+    const t0 = performance.now();
+    while (!this.clock.playing && performance.now() - t0 < 6000) await new Promise((r) => setTimeout(r, 150));
   }
   async pause() { await this.player.pause(); this.clock.sync(this.clock.now(), false); }
   async resume() { await this.player.resume(); }
@@ -149,13 +153,24 @@ export class ConnectPlayer {
   async play(track) {
     this.track = track;
     this.clock.sync(0, false);
+    this.userPaused = false; this.prevReport = null;
     await sp.playTrack(track.uri, this.device.id, 0);
-    // Spotify accepted the play: start the clock now (≈ when the device starts) and let polls refine it,
-    // so the fight never waits on a slow or mismatched status report.
-    this.clock.sync(0, true, performance.now() - 150);
-    this.playAt = performance.now(); this.userPaused = false; this.prevReport = null;
-    setTimeout(() => this._refresh(), 400);
-    setTimeout(() => this._refresh(), 1200);
+    // Wait until Spotify shows the song actually running (position moving): devices like the Quest app
+    // can take a few seconds to start. Starting the fight before that made the missiles jump back.
+    const t0 = performance.now(); let prev = null, last = null;
+    while (performance.now() - t0 < 9000) {
+      await new Promise((r) => setTimeout(r, 450));
+      const sent = performance.now(); let st;
+      try { st = await sp.getPlaybackState(); } catch { continue; }
+      const recv = performance.now();
+      if (!st || !st.item || !sameTrack(st.item, track) || !st.is_playing) continue;
+      last = { progress: st.progress_ms, at: (sent + recv) / 2 };
+      if (prev && st.progress_ms > prev.progress + 100) break; // confirmed running
+      prev = last;
+    }
+    // Start from Spotify's own position if we have one; otherwise from 0 now (polls correct it later).
+    if (last) this.clock.sync(last.progress, true, last.at); else this.clock.sync(0, true);
+    this.playAt = performance.now(); this.prevReport = last ? { progress: last.progress, at: last.at } : null;
   }
   async pause() { this.userPaused = true; await sp.pause(this.device.id); this.clock.sync(this.clock.now(), false); }
   async resume() { this.userPaused = false; this.playAt = performance.now(); await sp.resume(this.device.id); this.clock.sync(this.clock.now(), true); setTimeout(() => this._refresh(), 400); }

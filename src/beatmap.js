@@ -1,4 +1,4 @@
-import { cachedInfo } from './bpm.js?v=mwtn35k1';
+import { cachedInfo } from './bpm.js?v=mwto3s5n';
 // Beat maps without audio analysis.
 // Spotify's /audio-features and /audio-analysis are closed to new apps (Nov 2024), and the
 // page can't read Spotify's audio, so a map is: tempo (BPM + phase) + song sections -> seeded
@@ -89,62 +89,75 @@ const SPARSE = ['L.......', 'R.......'];
 // negative = left; el = up). Scaled down by `spread` for flat screens.
 // Every missile comes from in front of you (within about ±22° left/right, -15..25° up/down), so
 // nothing arrives from where you can't see it. Variety comes from height, sweeps and cross-body punches.
-const FORMATIONS = ['front', 'high', 'sweep', 'cross', 'front', 'low', 'sweep', 'high'];
-function direction(form, hand, i, r) {
+const FORMATIONS = ['front', 'high', 'sweep', 'front', 'low', 'sweep', 'high', 'front'];
+// Each glove keeps to its own side (left missiles on the left, right on the right) and never closer than
+// MIN_AZ to the middle, so hands don't cross or bump. Missiles for both fists at once are kept wider apart.
+const MIN_AZ = 9, MIN_AZ_BOTH = 14;
+function direction(form, hand, i, r, both) {
   const s = hand === 'L' ? -1 : 1;
   const j = (a, b) => a + r() * (b - a);
+  let d;
   switch (form) {
-    case 'high': return { az: s * j(6, 18), el: j(16, 25) };   // uppercut height
-    case 'low': return { az: s * j(6, 18), el: j(-15, -6) };   // body shots
-    case 'sweep': { const k = i / 7; return { az: s * (4 + 18 * (hand === 'L' ? 1 - k : k)), el: j(0, 12) }; }
-    case 'cross': return { az: -s * j(3, 10), el: j(0, 15) };  // crosses the midline: cross-body punches
-    default: return { az: s * j(8, 22), el: j(-5, 12) };
+    case 'high': d = { az: j(8, 18), el: j(16, 25) }; break;   // uppercut height
+    case 'low': d = { az: j(8, 18), el: j(-15, -6) }; break;   // body shots
+    case 'sweep': { const k = i / 7; d = { az: 6 + 16 * (hand === 'L' ? 1 - k : k), el: j(0, 12) }; break; }
+    default: d = { az: j(9, 22), el: j(-5, 12) };
   }
+  d.az = s * Math.max(both ? MIN_AZ_BOTH : MIN_AZ, d.az);
+  return d;
 }
 export const MAX_AZ = 22;
 
 /**
- * Missiles for a song. Busier where the song has more energy (choruses), calmer in intros,
- * pre-chorus slow-downs and outros. Same song + tempo + difficulty = same fight every time.
+ * Missiles for a song. Busier where the song has more energy (choruses), calmer in intros and
+ * slow-downs, and silent where the music drops out. Placed on the song's real beats when a source
+ * has them (handles tempo changes), otherwise on a steady grid. Same inputs = same fight every time.
  * @returns {{ notes: Array<{id,t,hand,az,el,strong}> }}
  */
-export function generate(track, tempo, difficulty = 'normal', { spread = 1, sections = [] } = {}) {
+export function generate(track, tempo, difficulty = 'normal', { spread = 1, sections = [], beats = null, shiftMs = 0 } = {}) {
   const r = rng(`${track.id}:${difficulty}:${tempo.bpm.toFixed(2)}`);
-  const g = grid(tempo);
-  const eighth = g.spb / 2;
   const endMs = (track.duration_ms || 180000) - 2500;
+  // beat list: real beats if we have them, else the tempo grid
+  let bt = beats && beats.length > 8 ? beats.filter((t) => t >= 2500 && t < endMs) : null;
+  if (!bt) { const g = grid(tempo); bt = []; for (let t = g.t0; t < endMs; t += g.spb) bt.push(t); }
   const energyAt = (t) => { const s = sectionAt(sections, t); return s ? s.energy : 0.6; };
 
   const notes = [];
-  let bar = 0, phrase = [], form = 'front', id = 0, prevE = 0.6;
+  let phrase = [], form = 'front', id = 0, prevE = 0.6;
   const lastByHand = { L: -1e9, R: -1e9 };
-  for (let barStart = g.t0; barStart < endMs; barStart += g.bar, bar++) {
-    const e = energyAt(barStart + g.bar / 2);
+  for (let b = 0, bar = 0; b + 4 <= bt.length; b += 4, bar++) {
+    const beat = (k) => bt[b + k];
+    const nextDown = b + 4 < bt.length ? bt[b + 4] : beat(3) + (beat(3) - beat(2));
+    const slot = (i) => (i % 2 === 0 ? beat(i / 2) : (beat((i - 1) / 2) + ((i - 1) / 2 + 1 < 4 ? beat((i - 1) / 2 + 1) : nextDown)) / 2);
+    const spb = (nextDown - beat(0)) / 4, eighth = spb / 2;
+    const e = energyAt((beat(0) + nextDown) / 2);
     if (bar % 4 === 0) {
       const pool = PATTERNS[difficulty] || PATTERNS.normal;
       phrase = [pool[Math.floor(r() * pool.length)], pool[Math.floor(r() * pool.length)]];
       form = bar < 4 ? 'front' : FORMATIONS[Math.floor(r() * FORMATIONS.length)];
     }
-    if (bar % 16 === 15 && e < 0.8) continue; // breather bar (never in a chorus)
+    if (e < 0.15) { prevE = e; continue; }                 // the music has dropped out: no missiles
+    if (bar % 16 === 15 && e < 0.8) continue;             // breather bar (never in a chorus)
     let pat;
-    if (e < 0.25) pat = SPARSE[bar % 2];
+    if (e < 0.3) pat = SPARSE[bar % 2];
     else if (e < 0.45) pat = CALM[(bar >> 1) % CALM.length];
     else if (e < 0.8) pat = phrase[bar % 2];
     else { const hard = PATTERNS[HARDER[difficulty]]; pat = hard[(bar * 3 + Math.floor(r() * 2)) % hard.length]; }
     if (e >= 0.8 && prevE < 0.8) pat = 'B' + pat.slice(1); // hit the chorus with both fists
     prevE = e;
     const hot = e >= 0.8;
-    const minGap = (hot || difficulty === 'hard') ? eighth * 0.99 : g.spb * 0.49;
+    const minGap = (hot || difficulty === 'hard') ? eighth * 0.99 : spb * 0.49;
     for (let i = 0; i < 8; i++) {
       const c = pat[i];
       if (c === '.' || !c) continue;
-      const t = barStart + i * eighth;
+      const t = Math.round(slot(i) + shiftMs);
       if (t > endMs) continue;
-      const hands = c === 'B' ? ['L', 'R'] : [c];
+      const both = c === 'B';
+      const hands = both ? ['L', 'R'] : [c];
       for (const hand of hands) {
         if (t - lastByHand[hand] < minGap) continue;
         lastByHand[hand] = t;
-        const d = direction(hot && form === 'front' ? 'sweep' : form, hand, i, r);
+        const d = direction(hot && form === 'front' ? 'sweep' : form, hand, i, r, both);
         notes.push({ id: id++, t, hand, az: d.az * spread, el: d.el * Math.min(1, spread * 1.4), strong: i === 0 });
       }
     }

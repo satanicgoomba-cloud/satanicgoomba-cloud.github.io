@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtn35k1';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwto3s5n';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -162,7 +162,8 @@ export class Menu {
     diffs.forEach((d, i) => p.button(`diff:${d}`, 30 + i * (bw + 10), 516, bw, 64, d.toUpperCase(), { selected: s.difficulty === d, size: 24 }));
     p.button('autoplay', 30, 596, (W - 70) / 2, 56, `AUTOPLAY ${s.autoplay !== false ? 'ON' : 'OFF'}`, { selected: s.autoplay !== false, size: 20 });
     p.button('shuffle', 40 + (W - 70) / 2, 596, (W - 70) / 2, 56, `SHUFFLE ${s.shuffle ? 'ON' : 'OFF'}`, { selected: !!s.shuffle, size: 20 });
-    p.button('fight', 30, 676, W - 60, 110, t ? 'FIGHT!' : 'PICK A SONG', { style: 'primary', size: 44 });
+    const busy = this.api.loading && this.api.loading();
+    p.button('fight', 30, 676, W - 60, 110, busy || (t ? 'FIGHT!' : 'PICK A SONG'), { style: 'primary', size: busy ? 30 : 44, color: busy ? '#8a5cff' : undefined });
   }
 
   _clickCard(id) {
@@ -269,6 +270,7 @@ export class Menu {
     g.fillStyle = r.rank === 'S' ? C.gold : r.rank === 'A' ? C.cyan : C.pink; g.font = FONT(900, 140); g.fillText(r.rank, W / 2, 56);
     g.fillStyle = C.text; g.font = FONT(900, 52); g.fillText(r.score.toLocaleString(), W / 2, 206);
     if (r.isBest) { g.fillStyle = C.gold; g.font = FONT(800, 22); g.fillText('NEW PERSONAL BEST', W / 2, 266); }
+    else if (r.synced) { g.fillStyle = C.muted; g.font = FONT(600, 18); g.fillText(`Beat sync for this song adjusted ${r.synced > 0 ? '+' : ''}${r.synced} ms for next time`, W / 2, 270); }
     const stats = [['ACCURACY', `${r.accuracy}%`], ['MAX COMBO', r.maxCombo], ['PERFECTS', r.perfects], ['SUPERS', r.supers]];
     const cw = (W - 60) / 4;
     stats.forEach(([k, v], i) => {
@@ -277,7 +279,9 @@ export class Menu {
       g.fillStyle = C.muted; g.font = FONT(600, 16); g.fillText(k, x, 346);
     });
     const next = this.api.nextInfo();
-    if (next) { g.fillStyle = C.cyan; g.font = FONT(700, 22); g.fillText(fitText(g, `Next: ${next.name} in ${next.secs}s`, W - 60), W / 2, 392); }
+    const busy = this.api.loading && this.api.loading();
+    if (busy) { g.fillStyle = C.cyan; g.font = FONT(700, 22); g.fillText(busy, W / 2, 392); }
+    else if (next) { g.fillStyle = C.cyan; g.font = FONT(700, 22); g.fillText(fitText(g, `Next: ${next.name} in ${next.secs}s`, W - 60), W / 2, 392); }
     const bw = (W - 80) / 3;
     p.button('next', 30, 440, bw, 72, next ? 'NEXT NOW' : 'NEXT', { style: 'primary', size: 26 });
     p.button('replay', 40 + bw, 440, bw, 72, 'REPLAY', { size: 24 });

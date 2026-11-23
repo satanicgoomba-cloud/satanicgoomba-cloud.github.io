@@ -1,15 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtn35k1';
-import * as sp from './spotify-api.js?v=mwtn35k1';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtn35k1';
+import * as auth from './spotify-auth.js?v=mwto3s5n';
+import * as sp from './spotify-api.js?v=mwto3s5n';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwto3s5n';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtn35k1';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtn35k1';
-import { lookupStructure, sectionsFor, structureSummary } from './structure.js?v=mwtn35k1';
-import { Game } from './game.js?v=mwtn35k1';
-import { Pointers } from './ui3d.js?v=mwtn35k1';
-import { Menu } from './menu3d.js?v=mwtn35k1';
-import * as prof from './profile.js?v=mwtn35k1';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwto3s5n';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwto3s5n';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwto3s5n';
+import { Game } from './game.js?v=mwto3s5n';
+import { Pointers } from './ui3d.js?v=mwto3s5n';
+import { Menu } from './menu3d.js?v=mwto3s5n';
+import * as prof from './profile.js?v=mwto3s5n';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -82,6 +82,7 @@ const menu = new Menu(game.scene, pointers, {
   audioError: () => S.spotifyError,
   onAudio: () => cycleOutput(),
   inApp: () => auth.inApp(),
+  loading: () => S.loading,
   build: () => BUILD,
   current: () => game.track,
   onPauseAction: (id) => ({ resume, restart: () => startTrack(S.queue[S.idx]), skip: () => finishTrack(false, true), select: () => toSelect() }[id] || (() => {}))(),
@@ -215,38 +216,54 @@ function playFromList(list, index) {
 }
 
 async function startTrack(track) {
-  if (!track) return;
-  let player = isPractice(track) ? S.practice : S.spotify;
-  if (!player) {
-    if (!auth.isLoggedIn()) { game.flash('Log in to Spotify to play your Liked Songs', 4000); return; }
-    game.flash('Connecting to Spotify…', 10000); menu.refresh();
-    try { player = await ensureSpotify(); }
-    catch (e) { game.flash(e.message, 8000); menu.show('select'); S.state = 'select'; menu.refresh(); return; }
-  }
-  // Playing on another device (e.g. a laptop)? If Spotify has since been opened on this Quest, move to it.
-  if (!isPractice(track) && player.device && !onQuestDevice(player.device)) {
-    try {
-      const q = (await sp.getDevices()).find((x) => onQuestDevice(x) && !x.is_restricted);
-      if (q) { player.dispose(); player = S.spotify = new ConnectPlayer(q); await player.init(); S.spotifyError = ''; game.flash(`Audio: ${q.name}`, 2500); }
-    } catch { /* keep the current device */ }
-  }
-  player.activate && player.activate();
-  for (const p of [S.practice, S.spotify]) if (p && p !== player && p.playing) p.pause().catch(() => {});
-  S.player = player; game.setPlayer(player);
-  // Hit sounds default: on for practice, off over Spotify songs (Spotify forbids mixing other audio in).
-  game.hitSounds = settings.hitSounds ?? isPractice(track);
-  S.maxPos = 0; S.ending = false; S.nextAt = 0; tapper.reset();
-  S.state = 'play'; menu.show('hidden');
-  if (!isPractice(track) && getTempo(track).source === 'default') { game.flash('Looking up tempo…', 6000); await Promise.race([lookupBpm(track, { priority: true }), new Promise((r) => setTimeout(r, 6000))]); }
-  if (!isPractice(track)) await Promise.race([lookupStructure(track), new Promise((r) => setTimeout(r, 4000))]);
-  game.structure = sectionsFor(track, getTempo(track).bpm); // verse / slow-down / chorus energy
-  game.loadTrack(track, getTempo(track), settings.difficulty || 'normal');
-  try { await player.play(track); }
-  catch (e) {
+  if (!track || S.loading) return;
+  // Everything is prepared on the menu ("GETTING READY…" on the FIGHT button); the arena only
+  // appears once Spotify has really started the song, so the missiles never have to reset.
+  const status = (m) => { S.loading = m; menu.refresh(); };
+  S.nextAt = 0;
+  status('GETTING READY…');
+  try {
+    let player = isPractice(track) ? S.practice : S.spotify;
+    if (!player) {
+      if (!auth.isLoggedIn()) throw new Error('Log in to Spotify to play your Liked Songs');
+      status('CONNECTING TO SPOTIFY…');
+      player = await ensureSpotify();
+    }
+    // Playing on another device (e.g. a laptop)? If Spotify has since been opened on this Quest, move to it.
+    if (!isPractice(track) && player.device && !onQuestDevice(player.device)) {
+      try {
+        const q = (await sp.getDevices()).find((x) => onQuestDevice(x) && !x.is_restricted);
+        if (q) { player.dispose(); player = S.spotify = new ConnectPlayer(q); await player.init(); S.spotifyError = ''; }
+      } catch { /* keep the current device */ }
+    }
+    if (!isPractice(track)) {
+      status('READING THE SONG…');
+      const wait = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+      await Promise.all([getTempo(track).source === 'default' ? wait(lookupBpm(track, { priority: true }), 6000) : null, wait(lookupStructure(track), 8000)]);
+    }
+    const tempo0 = getTempo(track), an = analyze(track, tempo0.bpm);
+    game.structure = an.sections;                                  // energy: quiet / calm / verse / chorus
+    game.beats = tempo0.source === 'tapped' ? null : an.beats;     // real beat times when a source has them
+    game.shiftMs = syncFor(track);                                 // learned from your punches
+
+    player.activate && player.activate();
+    for (const p of [S.practice, S.spotify]) if (p && p !== player && p.playing) p.pause().catch(() => {});
+    S.player = player; game.setPlayer(player);
+    // Hit sounds default: on for practice, off over Spotify songs (Spotify forbids mixing other audio in).
+    game.hitSounds = settings.hitSounds ?? isPractice(track);
+    status('STARTING THE SONG…');
+    await player.play(track); // resolves once the song is audibly playing (or after a timeout)
+    S.maxPos = 0; S.ending = false; tapper.reset();
+    game.loadTrack(track, tempo0, settings.difficulty || 'normal');
+    S.state = 'play'; menu.show('hidden');
+  } catch (e) {
     let msg = e.message;
     if (e.status === 404) msg = 'Spotify device not found: open Spotify on it (or switch AUDIO on the corner panel)';
     if (e.status === 403) msg = 'Spotify refused playback (Premium required)';
-    game.stop(); S.state = 'select'; menu.show('select'); game.flash(msg, 5000); S.spotifyError = msg; menu.refresh();
+    if (!isPractice(track)) S.spotifyError = msg;
+    game.stop(); S.state = 'select'; menu.show('select'); game.flash(msg, 6000);
+  } finally {
+    S.loading = null; menu.refresh();
   }
 }
 
@@ -260,9 +277,10 @@ function finishTrack(ended, skipToNext = false) {
   let isBest = false;
   if (ended || played) isBest = prof.recordRun(track, r).isBest;
   const accuracy = r.hits + r.misses ? Math.round((100 * r.hits) / (r.hits + r.misses)) : 0;
+  const synced = learnSync(track, r.errs);
   if (skipToNext) { startNext(); return; }
   if (S.player && S.player.playing) S.player.pause().catch(() => {});
-  S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, supers: r.supers, isBest };
+  S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, supers: r.supers, isBest, synced };
   game.stop(); S.state = 'results';
   S.nextAt = settings.autoplay !== false && S.queue.length > 1 ? performance.now() + 6000 : 0;
   menu.show('results');
@@ -291,6 +309,29 @@ async function resume() {
   if (S.player) { S.player.activate(); await S.player.resume().catch(() => {}); }
 }
 
+/* ---------------- per-song beat auto-sync ---------------- */
+// If you punch a song's missiles consistently earlier or later than you usually do, its beat is
+// probably a little off: shift that song's missiles for next time. Your general timing habit (the
+// median over recent songs) is subtracted first, so only the song's own error is corrected.
+const SYNC = 'bb.sync';
+const readSync = () => { try { return JSON.parse(localStorage.getItem(SYNC)) || {}; } catch { return {}; } };
+function syncFor(track) { return track && !isPractice(track) ? (readSync()[track.id] || 0) : 0; }
+function learnSync(track, errs) {
+  if (!track || !errs || errs.length < 16) return 0;
+  const med = (a) => { const b = a.slice().sort((x, y) => x - y); return b[b.length >> 1]; };
+  const songMs = med(errs) * 1000;                    // + = you punched before the missile's beat
+  const db = readSync();
+  const habit = db._habit ?? songMs;
+  db._habit = habit * 0.8 + songMs * 0.2;            // your general timing, slowly updated
+  let change = 0;
+  if (!isPractice(track)) {
+    const off = songMs - habit;
+    if (Math.abs(off) > 30) { change = -Math.round(off * 0.7); db[track.id] = Math.max(-400, Math.min(400, (db[track.id] || 0) + change)); }
+  }
+  try { localStorage.setItem(SYNC, JSON.stringify(db)); } catch { /* ignore */ }
+  return change;
+}
+
 /* ---------------- tempo ---------------- */
 function tapTempo() {
   if (S.state !== 'play' || !S.player || !S.player.playing) return;
@@ -298,7 +339,7 @@ function tapTempo() {
   if (!res) { game.flash(`Tap… ${tapper.taps.length}/4`, 800); return; }
   const tempo = { bpm: res.bpm, offsetMs: res.offsetMs, source: 'tapped' };
   if (!game.track.bpm) saveTempo(game.track, tempo);
-  game.structure = sectionsFor(game.track, tempo.bpm);
+  game.structure = analyze(game.track, tempo.bpm).sections; game.beats = null; // your taps win
   game.retime(tempo);
   game.flash(`Tempo locked: ${Math.round(res.bpm)} BPM`, 1500);
 }

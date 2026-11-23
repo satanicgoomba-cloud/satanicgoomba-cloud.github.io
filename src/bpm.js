@@ -19,20 +19,20 @@ export function cachedBpm(trackId) { const v = read()[trackId]; return v && v.bp
 export function cachedInfo(trackId) { return read()[trackId] || null; }
 
 /* ---------------- helpers ---------------- */
-const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms));
-async function getJson(url, ms = 5000) {
+export const timeout = (ms) => new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms));
+export async function getJson(url, ms = 5000) {
   const r = await Promise.race([fetch(url, { credentials: 'omit', referrerPolicy: 'no-referrer' }), timeout(ms)]);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
-const norm = (s) => String(s || '').toLowerCase()
+export const norm = (s) => String(s || '').toLowerCase()
   .replace(/\(feat[^)]*\)|\[feat[^\]]*\]|feat\.? .*$|ft\.? .*$/g, ' ')
   .replace(/ - .*(remaster|version|edit|mix|live|mono|stereo).*$/g, ' ')
   .replace(/\((?:[^)]*(remaster|version|edit|radio|explicit|clean|mono|stereo)[^)]*)\)/g, ' ')
   .normalize('NFKD').replace(/[̀-ͯ]/g, '')
   .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
-const firstArtist = (a) => norm(String(a || '').split(/,|&| x | and /i)[0]);
-function matches(track, title, artist, durationS) {
+export const firstArtist = (a) => norm(String(a || '').split(/,|&| x | and /i)[0]);
+export function matches(track, title, artist, durationS) {
   const t1 = norm(track.name), t2 = norm(title);
   if (!t1 || !t2) return false;
   const titleOk = t1 === t2 || (t1.length > 3 && t2.includes(t1)) || (t2.length > 3 && t1.includes(t2));
@@ -115,18 +115,33 @@ async function srcOsu(t) {
   return list.filter((x) => matches(t, x.title, x.artist, x.beatmaps && x.beatmaps[0] && x.beatmaps[0].total_length))
     .slice(0, 3).map((x) => ({ bpm: x.bpm, src: 'osu!', w: 2 }));
 }
-async function srcAcousticBrainz(t) {
-  if (!t.isrc || !/^[A-Z0-9]{12}$/i.test(t.isrc)) return [];
-  const mb = await getJson(`https://musicbrainz.org/ws/2/isrc/${t.isrc}?fmt=json`);
-  const ids = (mb.recordings || []).map((r) => r.id).slice(0, 3);
-  if (!ids.length) return [];
-  const ab = await getJson(`https://acousticbrainz.org/api/v1/low-level?recording_ids=${ids.join(';')}`, 8000);
-  const out = [];
-  for (const id of ids) {
-    const bpm = ab[id] && ab[id][0] && ab[id][0].rhythm && ab[id][0].rhythm.bpm;
-    if (bpm > 0) { out.push({ bpm, src: 'AcousticBrainz', w: 2 }); break; }
+// MusicBrainz allows about one request per second, so its calls are spaced out, and each song's
+// AcousticBrainz analysis is fetched once and shared by the tempo and structure lookups.
+let mbChain = Promise.resolve();
+function mbGet(url) {
+  const run = mbChain.then(() => getJson(url, 6000));
+  mbChain = run.catch(() => null).then(() => new Promise((r) => setTimeout(r, 1100)));
+  return run;
+}
+const abMemo = new Map();
+/** AcousticBrainz low-level analysis docs for a recording's ISRC: [{ mbid, doc }] (may be empty). */
+export function abDocs(isrc) {
+  if (!isrc || !/^[A-Z0-9]{12}$/i.test(isrc)) return Promise.resolve([]);
+  if (!abMemo.has(isrc)) {
+    abMemo.set(isrc, (async () => {
+      const mb = await mbGet(`https://musicbrainz.org/ws/2/isrc/${isrc}?fmt=json`);
+      const ids = (mb.recordings || []).map((r) => r.id).slice(0, 3);
+      if (!ids.length) return [];
+      const ab = await getJson(`https://acousticbrainz.org/api/v1/low-level?recording_ids=${ids.join(';')}`, 9000);
+      return ids.filter((id) => ab[id] && ab[id][0]).map((id) => ({ mbid: id, doc: ab[id][0] }));
+    })().catch((e) => { abMemo.delete(isrc); throw e; }));
   }
-  return out;
+  return abMemo.get(isrc);
+}
+async function srcAcousticBrainz(t) {
+  const docs = await abDocs(t.isrc);
+  const d = docs.find((x) => x.doc.rhythm && x.doc.rhythm.bpm > 0);
+  return d ? [{ bpm: d.doc.rhythm.bpm, src: 'AcousticBrainz', w: 2 }] : [];
 }
 
 /* ---------------- consensus ---------------- */
