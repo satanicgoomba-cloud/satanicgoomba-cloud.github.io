@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { generate, getDrops } from './beatmap.js?v=mwtmevdy';
-import { Shatter } from './shatter.js?v=mwtmevdy';
+import { generate, sectionAt } from './beatmap.js?v=mwtn35k1';
 
 const LEAD_S = 1.7;          // seconds a missile is visible before its beat
 const FAR_SPEED = 10;        // m/s while flying in
@@ -13,8 +12,8 @@ const MIN_PUNCH = 1.1;       // m/s toward the missile to count as a punch
 const COLORS = { L: 0xff2d6f, R: 0x00e5ff };
 const PALETTES = {
   normal: { fog: 0x07030f, rings: [0x00e5ff, 0xff2d6f] },
-  build: { fog: 0x1a0308, rings: [0xff5a1f, 0xff2d6f] },
-  drop: { fog: 0x0d0f2e, rings: [0xffe14d, 0xffffff] },
+  calm: { fog: 0x040716, rings: [0x3d5afe, 0x7c4dff] },   // intros, slow-downs, outros
+  chorus: { fog: 0x0d0f2e, rings: [0xffe14d, 0xffffff] }, // choruses light up gold
   focus: { fog: 0x120840, rings: [0x8a5cff, 0x00e5ff] },
 };
 
@@ -27,7 +26,7 @@ function dirFrom(az, el) {
 export class Game {
   constructor(renderer, hooks = {}) {
     this.r = renderer;
-    this.hooks = hooks;              // onTap, onPause, onMarkDrop
+    this.hooks = hooks;              // onTap, onPause
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x07030f);
     this.scene.fog = new THREE.Fog(0x07030f, 7, 32);
@@ -40,7 +39,7 @@ export class Game {
     this.mode = 'menu';              // 'menu' | 'play'
     this.player = null; this.track = null;
     this.tempo = { bpm: 120, offsetMs: 0 }; this.difficulty = 'normal';
-    this.notes = []; this.nextNote = 0; this.active = []; this.drops = [];
+    this.notes = []; this.nextNote = 0; this.active = []; this.sections = [];
     this.headY = 1.6;
     this.hitSounds = true;
     this.latencyMs = 0;
@@ -50,9 +49,7 @@ export class Game {
     this._buildWorld();
     this._buildGloves();
     this._buildPools();
-    this._buildSwarm();
     this._buildHud();
-    this.shatter = new Shatter(renderer, this.scene, this.camera);
     this.resetRun();
   }
 
@@ -211,7 +208,7 @@ export class Game {
       g.shadowColor = color; g.shadowBlur = 12; g.fillStyle = color; g.fillText(text, w / 2, 34);
       return new THREE.CanvasTexture(c);
     };
-    this.popTex = { perfect: mk('PERFECT', '#ffe14d'), great: mk('GREAT', '#7dff8a'), good: mk('GOOD', '#9ad8ff'), miss: mk('MISS', '#ff4d4d'), super: mk('SUPER!', '#ffffff'), breaker: mk('DROP BREAKER!', '#ffe14d', 512) };
+    this.popTex = { perfect: mk('PERFECT', '#ffe14d'), great: mk('GREAT', '#7dff8a'), good: mk('GOOD', '#9ad8ff'), miss: mk('MISS', '#ff4d4d'), super: mk('SUPER!', '#ffffff') };
     this.pops = [];
     for (let i = 0; i < 16; i++) {
       const s = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthTest: false }));
@@ -221,30 +218,6 @@ export class Game {
     this.popNext = 0;
     this.hurt = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 12), new THREE.MeshBasicMaterial({ color: 0xff0033, side: THREE.BackSide, transparent: true, opacity: 0, depthTest: false, depthWrite: false, fog: false }));
     this.hurt.renderOrder = 11; this.camera.add(this.hurt);
-  }
-
-  /* ---- swarm drones for the Drop Breaker ---- */
-  _buildSwarm() {
-    this.SW = 48;
-    this.swarmMesh = new THREE.InstancedMesh(new THREE.OctahedronGeometry(0.11, 0), new THREE.MeshStandardMaterial({ color: 0xff5a1f, emissive: 0xff3300, emissiveIntensity: 1.1, roughness: 0.3 }), this.SW);
-    this.swarmMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.swarmMesh.frustumCulled = false; this.swarmMesh.visible = false;
-    this.scene.add(this.swarmMesh);
-    this.groups = [];
-    const c = document.createElement('canvas'); c.width = 1024; c.height = 160;
-    this.promptCanvas = c; this.promptTex = new THREE.CanvasTexture(c);
-    this.prompt = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 0.25), new THREE.MeshBasicMaterial({ map: this.promptTex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
-    this.prompt.renderOrder = 6; this.prompt.visible = false; this.scene.add(this.prompt);
-  }
-
-  _setPrompt(text, color) {
-    if (this._promptText === text) return;
-    this._promptText = text;
-    const g = this.promptCanvas.getContext('2d');
-    g.clearRect(0, 0, 1024, 160);
-    g.font = '900 84px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.shadowColor = color; g.shadowBlur = 24; g.fillStyle = color; g.fillText(text, 512, 84);
-    this.promptTex.needsUpdate = true;
   }
 
   _buildHud() {
@@ -260,13 +233,10 @@ export class Game {
 
   /* ================= run state ================= */
   resetRun() {
-    this.run = { score: 0, combo: 0, maxCombo: 0, hits: 0, misses: 0, perfects: 0, supers: 0, breakers: 0, total: 0 };
+    this.run = { score: 0, combo: 0, maxCombo: 0, hits: 0, misses: 0, perfects: 0, supers: 0, total: 0 };
     this.meter = 0; this.charge = 0; this.charged = false; this.focusUntil = 0;
     for (const n of this.active) this._release(n);
     this.active = []; this.hudDirty = true;
-    this.groups = []; this.swarmMesh.visible = false; this.prompt.visible = false;
-    this.dropIdx = 0; this.dropState = null; this.dropModeUntil = -1;
-    if (this.shatter) this.shatter.clear();
   }
 
   setPlayer(p) { this.player = p; }
@@ -277,25 +247,23 @@ export class Game {
     this._regen();
     this.calibrateHeight();
     this.mode = 'play';
-    this.flash(tempo.source === 'default' ? 'Tempo is a guess: tap A/X (or T) on the beat to lock it' : tempo.source === 'lookup' ? `${Math.round(tempo.bpm)} BPM (${tempo.from}): tap A/X on the beat to line missiles up exactly` : `${Math.round(tempo.bpm)} BPM${this.drops.length ? ' · drop ahead' : ''}`, 4000);
+    this.flash(tempo.source === 'default' ? 'Tempo is a guess: tap A/X (or T) on the beat to lock it' : tempo.source === 'lookup' ? `${Math.round(tempo.bpm)} BPM (${tempo.from}): tap A/X on the beat to line missiles up exactly` : `${Math.round(tempo.bpm)} BPM`, 4000);
   }
 
   _regen(fromMs = -1) {
-    this.dropInfo = getDrops(this.track, this.tempo);
-    const { notes, drops } = generate(this.track, this.tempo, this.difficulty, { spread: this.spread, dropTimes: this.dropInfo.times });
+    // Song structure (sections with an energy level) shapes how busy each part of the fight is.
+    this.sections = (this.track && (this.track.sections || this.structure)) || [];
+    const { notes } = generate(this.track, this.tempo, this.difficulty, { spread: this.spread, sections: this.sections });
     this.notes = fromMs < 0 ? notes : notes.filter((n) => n.t > fromMs + 100);
     this.nextNote = 0;
-    this.drops = drops;
     this.run.total = notes.length;
   }
 
-  /** Re-generate upcoming targets after the tempo or drop changes. */
+  /** Re-generate upcoming targets after the tempo changes. */
   retime(tempo) {
     this.tempo = tempo;
     const pos = this.songPos();
     this._regen(pos + LEAD_S * 1000);
-    this.dropIdx = this.drops.findIndex((d) => d.buildStart > pos);
-    if (this.dropIdx < 0) this.dropIdx = this.drops.length;
     this.hudDirty = true;
   }
 
@@ -313,7 +281,7 @@ export class Game {
   reach() { return this.r.xr.isPresenting ? REACH : 0.85; }
   songPos() { return this.player ? this.player.positionMs() - this.latencyMs : 0; }
   flash(text, ms = 2000) { this.message = text; this.messageUntil = performance.now() + ms; this.hudDirty = true; }
-  stop() { this.mode = 'menu'; this.resetRun(); this.track = null; this.dropInfo = null; this.drops = []; }
+  stop() { this.mode = 'menu'; this.resetRun(); this.track = null; this.sections = []; }
 
   /* ================= per frame ================= */
   update(dt) {
@@ -331,7 +299,6 @@ export class Game {
         if (n.t - pos < -WINDOW_S * 1000) continue;
         this._spawn(n);
       }
-      this._updateDrop(dt, pos);
     }
 
     const win = focus ? FOCUS_WINDOW_S : WINDOW_S;
@@ -376,7 +343,6 @@ export class Game {
 
     this._updateWorld(dt, pos, focus);
     this._updateFx(dt);
-    this.shatter.update(dt);
     if (now - this.hudLast > 500) this.hudDirty = true;
     if (this.hudDirty && now - this.hudLast > 80) this._drawHud(pos, focus);
   }
@@ -418,7 +384,7 @@ export class Game {
         const v = g.pos.clone().sub(g.prev).divideScalar(dt);
         if (v.length() < 25) g.vel.lerp(v, 0.6);
       }
-      const win = this.dropState === 'window';
+      const win = false;
       const glow = this.charged ? 2.5 : this.charge > 0 ? 0.35 + this.charge * 2 : win ? 1.2 + Math.sin(performance.now() / 60) * 0.8 : 0.35;
       g.mesh.userData.mat.emissiveIntensity = glow;
       g.mesh.userData.mat.emissive.setHex(this.charged ? 0xffffff : win ? 0xffe14d : COLORS[g.hand]);
@@ -452,15 +418,8 @@ export class Game {
     if (xr) {
       if (edge('tapBtn', this._btn(L, 4) || this._btn(R, 4))) this.hooks.onTap && this.hooks.onTap();
       if (edge('pauseBtn', this._btn(L, 5) || this._btn(R, 5))) this.hooks.onPause && this.hooks.onPause();
-      if (edge('stickBtn', this._btn(L, 3) || this._btn(R, 3))) this.hooks.onMarkDrop && this.hooks.onMarkDrop();
       if (edge('focusBtn', this._btn(L, 0) && this._btn(R, 0))) this.tryFocus();
-      // Double punch (both fists forward within 0.25 s) fires the Drop Breaker
-      for (const g of [L, R]) if (-g.vel.z > 1.4) g.lastPunch = performance.now();
     }
-    if (this.dropState === 'window' && L.lastPunch && R.lastPunch && Math.abs(L.lastPunch - R.lastPunch) < 250 && performance.now() - Math.min(L.lastPunch, R.lastPunch) < 300) {
-      this._dropBreak(pos);
-    }
-    if (this.dropState === 'window') return; // Space / grips belong to the Drop Breaker now
     // Super punch: hold both grips (VR) / Space (desktop) to charge, then punch
     const holding = xr ? this._btn(L, 1) && this._btn(R, 1) : this.desktop.charge;
     if (this.meter >= 1 && holding) {
@@ -474,107 +433,6 @@ export class Game {
     this._superRelease = false;
   }
 
-  /* ================= Drop Breaker ================= */
-  _updateDrop(dt, pos) {
-    const d = this.drops[this.dropIdx];
-    if (!d) { this.dropState = null; return; }
-    const spb = 60000 / this.tempo.bpm;
-    if (pos >= d.buildStart && !this.dropState) this._startSwarm(d);
-    if (this.dropState === 'build' && pos >= d.windowStart) this.dropState = 'window';
-    if (this.dropState) this._updateSwarm(dt, pos, d);
-    if (this.dropState === 'build') {
-      this.prompt.visible = true;
-      this._setPrompt(`DROP INCOMING · ${Math.ceil((d.windowStart - pos) / spb)}`, '#ff8a3d');
-      this.prompt.scale.setScalar(1);
-    } else if (this.dropState === 'window') {
-      this.prompt.visible = true;
-      this._setPrompt(this.r.xr.isPresenting ? 'DOUBLE PUNCH!' : 'DOUBLE PUNCH! (Space)', '#ffe14d');
-      this.prompt.scale.setScalar(1 + Math.max(0, Math.sin((pos / spb) * Math.PI)) * 0.12);
-    } else if (this.dropState === 'breaking') {
-      this.prompt.visible = false;
-      for (const g of this.groups) if (!g.dead && pos >= g.boomAt) this._boomGroup(g);
-    }
-    if (pos >= d.t && this.dropState) this._drop(d);
-  }
-
-  _startSwarm(d) {
-    this.dropState = 'build';
-    this._applyPalette('build');
-    const r = (a, b) => a + Math.random() * (b - a);
-    const sp = Math.max(0.6, this.spread);
-    let idx = 0;
-    this.groups = [-48, -16, 18, 50].map((az) => {
-      const n = 7 + Math.floor(Math.random() * 3);
-      const g = { dir: dirFrom(az * sp, r(8, 26)), members: [], dead: false, boomAt: Infinity, center: v3() };
-      for (let k = 0; k < n && idx < this.SW; k++) g.members.push({ i: idx++, phase: (k / n) * Math.PI * 2, rad: r(0.35, 0.6), bob: Math.random() * 6 });
-      return g;
-    });
-    this.swarmMesh.count = idx; this.swarmMesh.visible = true;
-    this.flash('Drop incoming: get ready to DOUBLE PUNCH', 2500);
-  }
-
-  _updateSwarm(dt, pos, d) {
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = v3(), p = v3(), e = new THREE.Euler();
-    const k = Math.min(1, Math.max(0, (pos - d.buildStart) / (d.t - d.buildStart)));
-    const dist = 9 - k * 5;
-    const chest = this.chest();
-    const spin = pos / 400;
-    for (const g of this.groups) {
-      g.center.copy(chest).addScaledVector(g.dir, dist);
-      for (const mem of g.members) {
-        const scale = g.dead ? 0 : 1 + 0.25 * Math.sin(pos / 80 + mem.bob);
-        p.set(Math.cos(mem.phase + spin) * mem.rad, Math.sin(mem.phase + spin) * mem.rad * 0.7 + Math.sin(pos / 300 + mem.bob) * 0.08, Math.sin(mem.phase + spin) * 0.2).add(g.center);
-        q.setFromEuler(e.set(spin * 2 + mem.bob, spin * 3, 0));
-        m.compose(p, q, s.setScalar(scale));
-        this.swarmMesh.setMatrixAt(mem.i, m);
-      }
-    }
-    this.swarmMesh.instanceMatrix.needsUpdate = true;
-  }
-
-  _dropBreak(pos) {
-    const d = this.drops[this.dropIdx];
-    if (!d || this.dropState !== 'window') return;
-    this.dropState = 'breaking';
-    this.run.breakers++;
-    // detonate the groups one after another on eighth notes, all before the drop lands
-    const eighth = 30000 / this.tempo.bpm;
-    const live = this.groups.filter((g) => !g.dead);
-    const span = Math.max(eighth, d.t - pos - 40);
-    const step = Math.min(eighth, span / (live.length + 0.5));
-    live.forEach((g, i) => { g.boomAt = pos + step * (i + 0.5); });
-    for (const g of Object.values(this.gloves)) this._haptic(g, 1, 120);
-    this._pop('breaker', new THREE.Vector3(0, this.headY + 0.05, -1.4));
-    if (this.hitSounds) this._thump(1.4);
-  }
-
-  _boomGroup(g) {
-    g.dead = true;
-    [0xffe14d, 0xff5a1f, 0xffffff].forEach((c) => this._burst(g.center, c, 60, 3.5));
-    this.run.score += g.members.length * 50 * this.multiplier(false);
-    this.run.combo += g.members.length; this.run.hits += g.members.length;
-    this.run.maxCombo = Math.max(this.run.maxCombo, this.run.combo);
-    for (const gl of Object.values(this.gloves)) this._haptic(gl, 0.8, 60);
-    if (this.hitSounds) this._thump(1.2);
-    this.hudDirty = true;
-  }
-
-  _drop(d) {
-    const broke = this.dropState === 'breaking';
-    if (broke) for (const g of this.groups) if (!g.dead) this._boomGroup(g);
-    this.shatter.trigger();
-    this.groups = []; this.swarmMesh.visible = false; this.prompt.visible = false;
-    this.dropState = null; this.dropIdx++;
-    this.dropModeUntil = d.t + (60000 / this.tempo.bpm) * 32; // 8 bars of drop palette
-    this._applyPalette('drop');
-    this.scene.fog.color.copy(this.targetFog); // reveal the new colours instantly behind the shards
-    if (broke) { this.flash('DROP!', 1500); this.meter = Math.min(1, this.meter + 0.35); }
-    else { this.flash('Breaker missed: the swarm got through', 2000); this.run.combo = 0; this.hurtT = 0.4; }
-    for (const g of Object.values(this.gloves)) this._haptic(g, 1, 200);
-    this.hudDirty = true;
-  }
-
-  /* ================= scoring ================= */
   _spawn(n) {
     const mesh = this.pool.find((m) => !m.visible);
     if (!mesh) return;
@@ -672,7 +530,6 @@ export class Game {
     this.gloves[hand].lastPunch = performance.now();
   }
   desktopCharge(down) {
-    if (down && this.dropState === 'window') { this._dropBreak(this.songPos()); return; }
     if (!down && this.charged) this._superRelease = true;
     this.desktop.charge = down;
   }
@@ -741,23 +598,21 @@ export class Game {
     const phase = ((((pos - this.tempo.offsetMs) % spb) + spb) % spb) / spb;
     const live = this.mode === 'play' && this.player && this.player.playing;
     const beat = live ? Math.exp(-phase * 5) : 0.15 + 0.1 * Math.sin(performance.now() / 600);
-    const dropMode = live && pos < this.dropModeUntil;
-    if (!this.dropState) this._applyPalette(focus ? 'focus' : dropMode ? 'drop' : 'normal');
-    const speed = focus ? 1.2 : this.dropState ? 9 : dropMode ? 12 : live ? 5 : 1.5;
+    // Choruses (high-energy sections) light the arena up; calm sections dim it.
+    const sec = live ? sectionAt(this.sections, pos) : null;
+    const hot = !!sec && sec.energy >= 0.8, calm = !!sec && sec.energy < 0.4;
+    this._applyPalette(focus ? 'focus' : hot ? 'chorus' : calm ? 'calm' : 'normal');
+    const speed = focus ? 1.2 : hot ? 12 : calm ? 2.5 : live ? 5 : 1.5;
     this.scroll = (this.scroll || 0) + dt * speed;
     this.rings.forEach((ring, i) => {
       ring.position.z = -(((i * 2.2 - this.scroll) % 52.8) + 52.8) % 52.8 - 1;
-      ring.scale.setScalar(1 + beat * (dropMode ? 0.15 : 0.08));
+      ring.scale.setScalar(1 + beat * (hot ? 0.15 : 0.08));
       ring.material.opacity = 0.25 + beat * 0.5;
     });
     this.ropes.forEach((r) => (r.material.opacity = 0.3 + beat * 0.4));
     this.vignette.material.opacity += ((focus ? 0.35 : 0) - this.vignette.material.opacity) * Math.min(1, dt * 4);
     this.scene.fog.color.lerp(this.targetFog, Math.min(1, dt * 6));
     this.scene.background.copy(this.scene.fog.color);
-    if (this.prompt.visible) {
-      const cp = v3(); this.camera.getWorldPosition(cp);
-      this.prompt.position.set(0, this.headY + 0.25, -1.8); this.prompt.lookAt(cp);
-    }
     this.hud.visible = this.mode === 'play';
   }
 
@@ -786,12 +641,13 @@ export class Game {
     g.fillStyle = 'rgba(255,255,255,0.6)'; g.font = f(500, 22);
     const dur = this.track ? this.track.duration_ms : 0;
     const mmss = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
-    const dropTxt = this.drops.length ? `   drop: ${this.dropInfo.source}` : '';
+    const cur = sectionAt(this.sections, pos);
+    const dropTxt = cur ? `   ${cur.kind.toUpperCase()}` : '';
     g.fillText(`${mmss(Math.max(0, pos))} / ${mmss(dur)}   ${Math.round(this.tempo.bpm)} BPM${this.tempo.source === 'default' ? ' (guess)' : this.tempo.source === 'lookup' ? ` (${this.tempo.from})` : ''}${dropTxt}`, 32, 214);
     if (this.player && this.player.syncInfo) { g.save(); g.font = f(500, 18); g.fillStyle = 'rgba(255,255,255,0.55)'; g.fillText(this.player.syncInfo(), 32, 240); g.restore(); }
     g.fillStyle = 'rgba(255,255,255,0.15)'; g.fillRect(32, 250, W - 64, 6);
     g.fillStyle = '#00e5ff'; g.fillRect(32, 250, (W - 64) * Math.min(1, Math.max(0, pos / (dur || 1))), 6);
-    for (const d of this.drops) { g.fillStyle = '#ffe14d'; g.fillRect(32 + (W - 64) * (d.t / (dur || 1)) - 3, 244, 6, 18); }
+    for (const sct of this.sections) if (sct.energy >= 0.8) { g.fillStyle = 'rgba(255,225,77,0.55)'; g.fillRect(32 + (W - 64) * (sct.t0 / (dur || 1)), 246, (W - 64) * ((sct.t1 - sct.t0) / (dur || 1)), 3); }
     if (performance.now() < this.messageUntil) {
       g.textAlign = 'center'; g.fillStyle = '#00e5ff'; g.font = f(800, 26); g.fillText(this.message, W / 2, 264);
       this.hudDirty = true;

@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwtmevdy';
-import { getAccessToken } from './spotify-auth.js?v=mwtmevdy';
+import * as sp from './spotify-api.js?v=mwtn35k1';
+import { getAccessToken } from './spotify-auth.js?v=mwtn35k1';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -178,7 +178,9 @@ export class ConnectPlayer {
 // 32 bars: intro 0-3, groove 4-11, build-up 12-15, DROP at bar 16 (16-27), outro 28-31.
 const practice = (id, name, bpm, art) => {
   const bar = (60000 / bpm) * 4;
-  return { id, uri: '', name, artist: 'BeatBrawler practice', bpm, offsetMs: 0, duration_ms: Math.round(bar * 32 + 1500), drops: [bar * 16], art };
+  const sec = (b0, b1, kind, energy) => ({ t0: b0 * bar, t1: b1 * bar, kind, energy });
+  return { id, uri: '', name, artist: 'BeatBrawler practice', bpm, offsetMs: 0, duration_ms: Math.round(bar * 32 + 1500), art,
+    sections: [sec(0, 4, 'intro', 0.3), sec(4, 12, 'verse', 0.6), sec(12, 16, 'pre', 0.35), sec(16, 28, 'chorus', 1), sec(28, 33, 'outro', 0.3)] };
 };
 export const PRACTICE_TRACKS = [
   practice('practice-120', 'Neon Jab', 120, ''),

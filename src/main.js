@@ -1,14 +1,15 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtmevdy';
-import * as sp from './spotify-api.js?v=mwtmevdy';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtmevdy';
+import * as auth from './spotify-auth.js?v=mwtn35k1';
+import * as sp from './spotify-api.js?v=mwtn35k1';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtn35k1';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtmevdy';
-import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtmevdy';
-import { Game } from './game.js?v=mwtmevdy';
-import { Pointers } from './ui3d.js?v=mwtmevdy';
-import { Menu } from './menu3d.js?v=mwtmevdy';
-import * as prof from './profile.js?v=mwtmevdy';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtn35k1';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtn35k1';
+import { lookupStructure, sectionsFor, structureSummary } from './structure.js?v=mwtn35k1';
+import { Game } from './game.js?v=mwtn35k1';
+import { Pointers } from './ui3d.js?v=mwtn35k1';
+import { Menu } from './menu3d.js?v=mwtn35k1';
+import * as prof from './profile.js?v=mwtn35k1';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -22,7 +23,7 @@ renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 document.body.prepend(renderer.domElement);
 
-const game = new Game(renderer, { onTap: () => tapTempo(), onPause: () => pause(), onMarkDrop: () => markDropHere() });
+const game = new Game(renderer, { onTap: () => tapTempo(), onPause: () => pause() });
 const pointers = new Pointers(renderer, game.scene, game.camera, game.rig);
 const tapper = new TapTempo();
 addEventListener('resize', () => {
@@ -58,11 +59,11 @@ const menu = new Menu(game.scene, pointers, {
   outputName: () => (S.spotify ? S.spotify.name : S.spotifyError || (auth.isLoggedIn() ? 'Spotify not started' : 'Practice only (not logged in)')),
   inVR,
   trackInfo: (t) => {
-    const tempo = getTempo(t), drops = getDrops(t, tempo);
+    const tempo = getTempo(t);
     const st = prof.loadStats().tracks[t.id];
     return {
       tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', lookup: `(${tempo.from})`, default: bpmPending.has(t.id) ? '(looking up…)' : '(guess: tap A/X in game)' }[tempo.source]}`,
-      drop: { known: 'yes', marked: 'yes (you marked it)', estimated: 'estimated', none: 'none yet (click the stick at the drop to mark it)' }[drops.source],
+      structure: structPending.has(t.id) ? 'looking up…' : structureSummary(t, tempo.bpm) || 'not looked up yet',
       best: st ? `Best ${st.best.toLocaleString()} · played ${st.plays}×` : 'Not played yet',
       lookup: tempo.source === 'default' && !bpmPending.has(t.id) ? lookupDiag(t.id) : '',
     };
@@ -75,6 +76,7 @@ const menu = new Menu(game.scene, pointers, {
   onSelectTrack: (list, index) => { // look the tempo up while the player reads the fight card
     const t = list[index]; if (!t || isPractice(t)) return;
     if (getTempo(t).source === 'default') { bpmPending.add(t.id); menu.refresh(); lookupBpm(t, { priority: true }).finally(() => { bpmPending.delete(t.id); menu.refresh(); }); }
+    if (!structPending.has(t.id)) { structPending.add(t.id); menu.refresh(); lookupStructure(t).finally(() => { structPending.delete(t.id); menu.refresh(); }); }
     prefetchBpm(list.slice(index + 1, index + 6));
   },
   audioError: () => S.spotifyError,
@@ -136,7 +138,7 @@ async function connectPlayer(preferId) {
   const p = new ConnectPlayer(d); await p.init(); return p;
 }
 let spotifyStarting = null;
-const bpmPending = new Set();
+const bpmPending = new Set(), structPending = new Set();
 const onQuestDevice = (d) => !!d && /quest|oculus|meta/i.test(d.name || '');
 function ensureSpotify() {
   if (S.spotify) return Promise.resolve(S.spotify);
@@ -236,6 +238,8 @@ async function startTrack(track) {
   S.maxPos = 0; S.ending = false; S.nextAt = 0; tapper.reset();
   S.state = 'play'; menu.show('hidden');
   if (!isPractice(track) && getTempo(track).source === 'default') { game.flash('Looking up tempo…', 6000); await Promise.race([lookupBpm(track, { priority: true }), new Promise((r) => setTimeout(r, 6000))]); }
+  if (!isPractice(track)) await Promise.race([lookupStructure(track), new Promise((r) => setTimeout(r, 4000))]);
+  game.structure = sectionsFor(track, getTempo(track).bpm); // verse / slow-down / chorus energy
   game.loadTrack(track, getTempo(track), settings.difficulty || 'normal');
   try { await player.play(track); }
   catch (e) {
@@ -258,7 +262,7 @@ function finishTrack(ended, skipToNext = false) {
   const accuracy = r.hits + r.misses ? Math.round((100 * r.hits) / (r.hits + r.misses)) : 0;
   if (skipToNext) { startNext(); return; }
   if (S.player && S.player.playing) S.player.pause().catch(() => {});
-  S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, breakers: r.breakers, isBest };
+  S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, supers: r.supers, isBest };
   game.stop(); S.state = 'results';
   S.nextAt = settings.autoplay !== false && S.queue.length > 1 ? performance.now() + 6000 : 0;
   menu.show('results');
@@ -287,13 +291,14 @@ async function resume() {
   if (S.player) { S.player.activate(); await S.player.resume().catch(() => {}); }
 }
 
-/* ---------------- tempo + drop marking ---------------- */
+/* ---------------- tempo ---------------- */
 function tapTempo() {
   if (S.state !== 'play' || !S.player || !S.player.playing) return;
   const res = tapper.tap(game.songPos());
   if (!res) { game.flash(`Tap… ${tapper.taps.length}/4`, 800); return; }
   const tempo = { bpm: res.bpm, offsetMs: res.offsetMs, source: 'tapped' };
   if (!game.track.bpm) saveTempo(game.track, tempo);
+  game.structure = sectionsFor(game.track, tempo.bpm);
   game.retime(tempo);
   game.flash(`Tempo locked: ${Math.round(res.bpm)} BPM`, 1500);
 }
@@ -304,14 +309,6 @@ function nudge(ms) {
   game.retime(tempo);
   game.flash(`Beat offset ${Math.round(tempo.offsetMs)} ms`, 1000);
 }
-function markDropHere() {
-  if (S.state !== 'play' || !game.track) return;
-  if (isPractice(game.track)) { game.flash('Practice tracks already know their drop', 1500); return; }
-  const t = markDrop(game.track, game.tempo, game.songPos());
-  const mm = `${Math.floor(t / 60000)}:${String(Math.floor(t / 1000) % 60).padStart(2, '0')}`;
-  game.flash(`Drop marked at ${mm}: the Drop Breaker fires there next time`, 2500);
-}
-
 /* ---------------- WebXR ---------------- */
 let xrSession = null;
 if (navigator.xr) navigator.xr.isSessionSupported('immersive-vr').then((ok) => { $('enterVR').hidden = !ok; }).catch(() => {});
@@ -367,7 +364,6 @@ addEventListener('keydown', (e) => {
   else if (k === ' ') { e.preventDefault(); game.desktopCharge(true); }
   else if (k === 'f') game.tryFocus();
   else if (k === 't') tapTempo();
-  else if (k === 'm') markDropHere();
   else if (k === 'n') finishTrack(false, true);
   else if (k === '[') nudge(-10);
   else if (k === ']') nudge(10);

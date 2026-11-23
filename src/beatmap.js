@@ -1,11 +1,11 @@
-import { cachedInfo } from './bpm.js?v=mwtmevdy';
+import { cachedInfo } from './bpm.js?v=mwtn35k1';
 // Beat maps without audio analysis.
 // Spotify's /audio-features and /audio-analysis are closed to new apps (Nov 2024), and the
-// page can't read Spotify's audio, so a map is: tempo (BPM + phase) + drop times -> seeded
-// pattern pinned to playback position. Tempo comes from your taps (saved per song) or a guess.
-// Drops come from: practice tracks (exact), drops you marked (exact), or a phrase-based estimate.
+// page can't read Spotify's audio, so a map is: tempo (BPM + phase) + song sections -> seeded
+// pattern pinned to playback position. Tempo: your taps, music databases (bpm.js) or a guess.
+// Sections (verse/pre-chorus/chorus… with an energy level) come from structure.js.
 
-const TEMPO = 'bb.tempo', DROPS = 'bb.drops';
+const TEMPO = 'bb.tempo';
 export const DEFAULT_BPM = 120;
 
 const read = (k) => { try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; } };
@@ -64,34 +64,13 @@ export function grid(tempo) {
   const t0 = tempo.offsetMs + Math.ceil((START_MS - tempo.offsetMs) / (spb * 4)) * spb * 4; // first bar line
   return { spb, bar: spb * 4, t0 };
 }
-const snapToBar = (t, g) => g.t0 + Math.round((t - g.t0) / g.bar) * g.bar;
 
-/* ---------------- drops ---------------- */
-export function markDrop(track, tempo, posMs) {
-  const g = grid(tempo);
-  const s = read(DROPS);
-  s[track.id] = Math.round(snapToBar(posMs, g));
-  localStorage.setItem(DROPS, JSON.stringify(s));
-  return s[track.id];
-}
-export function clearDrop(track) { const s = read(DROPS); delete s[track.id]; localStorage.setItem(DROPS, JSON.stringify(s)); }
-
-/** @returns {{ times: number[], source: 'known'|'marked'|'estimated'|'none' }} */
-export function getDrops(track, tempo) {
-  if (track.drops) return { times: track.drops.slice(), source: 'known' };
-  const marked = read(DROPS)[track.id];
-  if (marked) return { times: [marked], source: 'marked' };
-  // Estimate only when the beat grid is trustworthy (you tapped the tempo) and the song is long and
-  // energetic enough. Not every song gets one, by design.
-  const dur = track.duration_ms || 0;
-  if ((tempo.source !== 'tapped' && tempo.source !== 'lookup') || dur < 150000 || tempo.bpm < 95) return { times: [], source: 'none' };
-  const r = rng(`${track.id}:drop`);
-  if (r() > 0.65) return { times: [], source: 'none' };
-  const g = grid(tempo);
-  const phrase = g.bar * 16;
-  let t = g.t0 + Math.round((dur * 0.3 - g.t0) / phrase) * phrase;
-  t = Math.max(t, g.t0 + phrase);
-  return t < dur - g.bar * 12 ? { times: [t], source: 'estimated' } : { times: [], source: 'none' };
+/* ---------------- song structure ---------------- */
+// sections: [{ t0, t1, kind: 'intro'|'verse'|'pre'|'chorus'|'break'|'bridge'|'outro', energy: 0..1 }]
+export function sectionAt(sections, t) {
+  if (!sections) return null;
+  for (const s of sections) if (t >= s.t0 && t < s.t1) return s;
+  return null;
 }
 
 /* ---------------- patterns ---------------- */
@@ -102,6 +81,9 @@ const PATTERNS = {
   hard: ['LRL.R.L.', 'L.RLR...', 'LRLRB...', 'L.R.LRL.', 'B.LR.RL.', 'LR.RL.B.', 'L.R.L.R.', 'RL.LR.B.'],
 };
 const HARDER = { easy: 'normal', normal: 'hard', hard: 'hard' };
+// Calm parts (intro, pre-chorus slow-downs, outro): half-time hits on beats 1 and 3, or just one per bar.
+const CALM = ['L...R...', 'R...L...', 'L...L...', 'B.......'];
+const SPARSE = ['L.......', 'R.......'];
 
 // Formations decide which direction each missile flies in from (degrees; az 0 = straight ahead,
 // negative = left; el = up). Scaled down by `spread` for flat screens.
@@ -122,39 +104,42 @@ function direction(form, hand, i, r) {
 export const MAX_AZ = 22;
 
 /**
- * @returns {{ notes: Array<{id,t,hand,az,el,strong}>, drops: Array<{t, buildStart, windowStart}> }}
+ * Missiles for a song. Busier where the song has more energy (choruses), calmer in intros,
+ * pre-chorus slow-downs and outros. Same song + tempo + difficulty = same fight every time.
+ * @returns {{ notes: Array<{id,t,hand,az,el,strong}> }}
  */
-export function generate(track, tempo, difficulty = 'normal', { spread = 1, dropTimes = [] } = {}) {
+export function generate(track, tempo, difficulty = 'normal', { spread = 1, sections = [] } = {}) {
   const r = rng(`${track.id}:${difficulty}:${tempo.bpm.toFixed(2)}`);
   const g = grid(tempo);
   const eighth = g.spb / 2;
   const endMs = (track.duration_ms || 180000) - 2500;
-  const drops = dropTimes
-    .map((t) => snapToBar(t, g))
-    .filter((t) => t - g.bar * 4 > g.t0 && t < endMs)
-    .map((t) => ({ t, buildStart: t - g.bar * 4, windowStart: t - g.bar }));
-  const inBuild = (t) => drops.some((d) => t >= d.buildStart - eighth && t < d.t);
-  const afterDrop = (t) => drops.some((d) => t >= d.t && t < d.t + g.bar * 8);
+  const energyAt = (t) => { const s = sectionAt(sections, t); return s ? s.energy : 0.6; };
 
   const notes = [];
-  let bar = 0, phrase = [], form = 'front', id = 0;
+  let bar = 0, phrase = [], form = 'front', id = 0, prevE = 0.6;
   const lastByHand = { L: -1e9, R: -1e9 };
   for (let barStart = g.t0; barStart < endMs; barStart += g.bar, bar++) {
+    const e = energyAt(barStart + g.bar / 2);
     if (bar % 4 === 0) {
       const pool = PATTERNS[difficulty] || PATTERNS.normal;
       phrase = [pool[Math.floor(r() * pool.length)], pool[Math.floor(r() * pool.length)]];
       form = bar < 4 ? 'front' : FORMATIONS[Math.floor(r() * FORMATIONS.length)];
     }
-    if (bar % 16 === 15 && !afterDrop(barStart)) continue; // breather bar
-    const hot = afterDrop(barStart);
-    const pool = PATTERNS[hot ? HARDER[difficulty] : difficulty];
-    const pat = hot ? pool[(bar * 3) % pool.length] : phrase[bar % 2];
+    if (bar % 16 === 15 && e < 0.8) continue; // breather bar (never in a chorus)
+    let pat;
+    if (e < 0.25) pat = SPARSE[bar % 2];
+    else if (e < 0.45) pat = CALM[(bar >> 1) % CALM.length];
+    else if (e < 0.8) pat = phrase[bar % 2];
+    else { const hard = PATTERNS[HARDER[difficulty]]; pat = hard[(bar * 3 + Math.floor(r() * 2)) % hard.length]; }
+    if (e >= 0.8 && prevE < 0.8) pat = 'B' + pat.slice(1); // hit the chorus with both fists
+    prevE = e;
+    const hot = e >= 0.8;
     const minGap = (hot || difficulty === 'hard') ? eighth * 0.99 : g.spb * 0.49;
     for (let i = 0; i < 8; i++) {
       const c = pat[i];
       if (c === '.' || !c) continue;
       const t = barStart + i * eighth;
-      if (t > endMs || inBuild(t)) continue;
+      if (t > endMs) continue;
       const hands = c === 'B' ? ['L', 'R'] : [c];
       for (const hand of hands) {
         if (t - lastByHand[hand] < minGap) continue;
@@ -164,5 +149,5 @@ export function generate(track, tempo, difficulty = 'normal', { spread = 1, drop
       }
     }
   }
-  return { notes, drops };
+  return { notes };
 }

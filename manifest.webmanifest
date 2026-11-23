@@ -1,7 +1,7 @@
 {
   "name": "BeatBrawler VR",
   "short_name": "BeatBrawler",
-  "description": "Box the missiles. Break the drop. Your Liked Songs are the playlist.",
+  "description": "Box the missiles to the beat. Your Liked Songs are the playlist.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

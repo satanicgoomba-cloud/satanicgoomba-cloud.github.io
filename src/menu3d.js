@@ -1,4 +1,4 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtmevdy';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtn35k1';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -147,7 +147,7 @@ export class Menu {
       const info = this.api.trackInfo(t);
       g.font = FONT(500, 20); g.fillStyle = C.text;
       g.fillText(`${mmss(t.duration_ms)} · ${info.tempo}`, W / 2, 418);
-      g.fillStyle = info.drop.startsWith('none') ? C.muted : C.gold; g.fillText(`Drop: ${info.drop}`, W / 2, 446);
+      g.fillStyle = /^from|built/.test(info.structure) ? C.gold : C.muted; g.fillText(fitText(g, `Sections: ${info.structure}`, W - 50), W / 2, 446);
       const err = !String(t.id).startsWith('practice') && (this.api.audioError() || (info.lookup ? `Tempo lookup: ${info.lookup}` : ''));
       if (!err) { g.fillStyle = C.muted; g.fillText(info.best, W / 2, 474); }
       else { // audio problem: say what to do, on two lines where the best score would be
@@ -203,8 +203,8 @@ export class Menu {
     p.button('exit', 30, 600, W - 60, 56, this.api.inVR() ? 'EXIT VR' : 'BACK TO LOBBY', { size: 20 });
     g.fillStyle = C.muted; g.font = FONT(500, 17); g.textAlign = 'left';
     const help = this.api.inVR()
-      ? ['Trigger or pinch: select · Stick: scroll', 'Pause: B/Y, Meta button, or tap left wrist', 'A/X tap tempo · Stick click: mark drop', 'Both grips + punch: Super Punch', 'Both triggers: Focus (controllers)']
-      : ['Click: select · Wheel: scroll', 'In game: T tap tempo · Esc pause', 'M: mark the drop here', 'Hold Space: Super / Drop Breaker', 'F: Focus · D/K or clicks: punch'];
+      ? ['Trigger or pinch: select · Stick: scroll', 'Pause: B/Y, Meta button, or tap left wrist', 'A/X: tap the beat to line missiles up', 'Both grips + punch: Super Punch', 'Both triggers: Focus (controllers)']
+      : ['Click: select · Wheel: scroll', 'In game: T tap tempo · Esc pause', '[ ] nudge the beat', 'Hold Space: Super Punch', 'F: Focus · D/K or clicks: punch'];
     help.forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
     g.textAlign = 'right'; g.fillStyle = 'rgba(244,240,255,0.35)'; g.font = FONT(500, 15); g.fillText(`build ${this.api.build()}`, W - 24, 26);
   }
@@ -269,7 +269,7 @@ export class Menu {
     g.fillStyle = r.rank === 'S' ? C.gold : r.rank === 'A' ? C.cyan : C.pink; g.font = FONT(900, 140); g.fillText(r.rank, W / 2, 56);
     g.fillStyle = C.text; g.font = FONT(900, 52); g.fillText(r.score.toLocaleString(), W / 2, 206);
     if (r.isBest) { g.fillStyle = C.gold; g.font = FONT(800, 22); g.fillText('NEW PERSONAL BEST', W / 2, 266); }
-    const stats = [['ACCURACY', `${r.accuracy}%`], ['MAX COMBO', r.maxCombo], ['PERFECTS', r.perfects], ['BREAKERS', r.breakers]];
+    const stats = [['ACCURACY', `${r.accuracy}%`], ['MAX COMBO', r.maxCombo], ['PERFECTS', r.perfects], ['SUPERS', r.supers]];
     const cw = (W - 60) / 4;
     stats.forEach(([k, v], i) => {
       const x = 30 + i * cw + cw / 2;
