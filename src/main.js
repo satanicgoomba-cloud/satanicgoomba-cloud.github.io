@@ -1,14 +1,14 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtmd3ks';
-import * as sp from './spotify-api.js?v=mwtmd3ks';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtmd3ks';
+import * as auth from './spotify-auth.js?v=mwtmevdy';
+import * as sp from './spotify-api.js?v=mwtmevdy';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtmevdy';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtmd3ks';
-import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtmd3ks';
-import { Game } from './game.js?v=mwtmd3ks';
-import { Pointers } from './ui3d.js?v=mwtmd3ks';
-import { Menu } from './menu3d.js?v=mwtmd3ks';
-import * as prof from './profile.js?v=mwtmd3ks';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS } from './players.js?v=mwtmevdy';
+import { getTempo, saveTempo, TapTempo, getDrops, markDrop } from './beatmap.js?v=mwtmevdy';
+import { Game } from './game.js?v=mwtmevdy';
+import { Pointers } from './ui3d.js?v=mwtmevdy';
+import { Menu } from './menu3d.js?v=mwtmevdy';
+import * as prof from './profile.js?v=mwtmevdy';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
