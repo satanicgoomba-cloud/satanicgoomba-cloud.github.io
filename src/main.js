@@ -68,6 +68,8 @@ const menu = new Menu(game.scene, pointers, {
   onShareCard: () => prof.shareCard(prof.summary(S.profile)).then(() => game.flash('Profile card saved', 2000)).catch(() => {}),
   onExit: () => exitToLobby(),
   onLogin: () => startLogin(),
+  onPasteCode: () => pasteLoginCode(),
+  inApp: () => auth.inApp(),
   current: () => game.track,
   onPauseAction: (id) => ({ resume, restart: () => startTrack(S.queue[S.idx]), skip: () => finishTrack(false, true), select: () => toSelect() }[id] || (() => {}))(),
   lastResult: () => S.result,
@@ -329,6 +331,13 @@ $('saveId').onclick = () => {
 $('editId').onclick = () => { $('setup').hidden = false; $('clientId').value = auth.getClientId(); };
 $('login').onclick = () => startLogin();
 async function startLogin() {
+  // Inside the Quest app, opening Spotify's page leaves (and closes) the app, so never navigate away:
+  // show how to log in with the Quest Browser and bring the login back.
+  if (auth.inApp()) {
+    if (xrSession) { menu.loginHelp = true; menu.corner.redraw(); }
+    else { $('appLogin').hidden = false; $('appLogin').scrollIntoView({ behavior: 'smooth' }); }
+    return;
+  }
   if (!auth.getClientId()) { if (xrSession) await xrSession.end().catch(() => {}); status('Enter your Spotify Client ID first.', true); $('setup').hidden = false; return; }
   if (xrSession) await xrSession.end().catch(() => {}); // the Spotify page is 2D
   auth.login().catch((e) => status(e.message, true));
@@ -364,10 +373,16 @@ async function refreshDevices() {
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 function renderAuth() {
-  const hasId = !!auth.getClientId(), inn = auth.isLoggedIn();
-  $('setup').hidden = hasId;
-  $('loggedOut').hidden = !hasId || inn;
+  const hasId = !!auth.getClientId(), inn = auth.isLoggedIn(), app = auth.inApp();
+  $('setup').hidden = hasId || app;
+  $('loggedOut').hidden = !hasId || inn || app;
+  $('appLogin').hidden = !app || inn;
   $('loggedIn').hidden = !inn;
+  $('sendToApp').hidden = !inn || app;
+  if (inn && !app) {
+    $('sendWindow').href = auth.sendToAppLink(auth.APP_PKGS.w);
+    $('sendImmersive').href = auth.sendToAppLink(auth.IMMERSIVE_PKG);
+  }
   if (inn && S.profile) {
     $('avatar').src = S.profile.avatar || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E';
     $('meName').textContent = S.profile.name;
@@ -416,6 +431,32 @@ $('copyLink').onclick = async () => {
 };
 $('resetStats').onclick = () => { if (confirm('Reset all scores and play counts on this device?')) { prof.clearStats(); renderProfile(); } };
 
+/* ---------------- login codes (Quest Browser -> Quest app) ---------------- */
+function useLoginCode(code) {
+  auth.importLoginCode(code);
+  S.profile = null; menu.loginHelp = false;
+  status('Logged in from the Quest Browser.'); renderAuth(); loadSpotify(); menu.refresh();
+}
+$('useCode').onclick = () => { try { useLoginCode($('codeInput').value); $('codeInput').value = ''; } catch (e) { status(e.message, true); } };
+$('copyCode').onclick = async () => {
+  const code = auth.loginCode();
+  try { await navigator.clipboard.writeText(code); status('Login code copied. Open the app and paste it (don\'t share it).'); }
+  catch { prompt('Copy this login code (don\'t share it):', code); }
+};
+async function pasteLoginCode() { // VR corner panel: read the code from the headset's clipboard
+  try { useLoginCode(await navigator.clipboard.readText()); game.flash('Logged in to Spotify', 2500); }
+  catch (e) { game.flash(e.message || 'Couldn\'t read the clipboard', 4000); }
+  menu.corner.redraw();
+}
+
+function checkHashLogin() {
+  const hm = /[#&]bblogin=([^&]+)/.exec(location.hash);
+  if (!hm) return;
+  history.replaceState(null, '', location.pathname + location.search); // don't leave the code in the address
+  try { useLoginCode(decodeURIComponent(hm[1])); } catch (e) { status(e.message, true); }
+}
+addEventListener('hashchange', checkHashLogin); // the app may already be open when the link arrives
+
 /* ---------------- login hand-back (browser tab -> Quest app) ---------------- */
 function showHandoff(h) {
   const app = h.pkg === auth.IMMERSIVE_PKG ? 'BeatBrawler' : 'BB Setup';
@@ -431,6 +472,8 @@ function showHandoff(h) {
 /* ---------------- boot ---------------- */
 (async () => {
   layoutForMode();
+  // A login handed over from the Quest Browser arrives as #bblogin=<code>.
+  checkHashLogin();
   let r = null;
   try { r = await auth.handleRedirect(); if (r === 'done') status('Logged in.'); } catch (e) { status(e.message, true); }
   if (r === 'handoff') { showHandoff(auth.handoff); return; } // this browser tab only hands the login back to the Quest app

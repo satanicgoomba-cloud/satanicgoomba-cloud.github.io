@@ -23,6 +23,36 @@ try {
   const m = /^android-app:\/\/([\w.]+)/.exec(document.referrer || '');
   if (m && APP_CODE[m[1]]) sessionStorage.setItem(K.app, m[1]);
 } catch { /* ignore */ }
+/** True inside the Quest app (TWA): logins can't leave the app there, so they go through the Quest Browser. */
+export function inApp() {
+  return !!appPackage() || !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+}
+
+/* ---- moving a login from the Quest Browser into the app (same headset, nothing leaves it) ----
+   A "login code" is BB1.<base64url JSON {c: client id, r: refresh token}>. It's as sensitive as a
+   password: it only ever travels inside a local link to the app or the headset's clipboard. */
+export function loginCode() {
+  const tok = readToken();
+  if (!tok || !tok.refresh_token) return '';
+  const json = JSON.stringify({ c: getClientId(), r: tok.refresh_token });
+  return 'BB1.' + b64url(new TextEncoder().encode(json));
+}
+export function importLoginCode(code) {
+  const m = /BB1\.([A-Za-z0-9_-]+)/.exec(String(code || ''));
+  if (!m) throw new Error('That isn\'t a BeatBrawler login code.');
+  let d;
+  try { d = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')), (ch) => ch.charCodeAt(0)))); }
+  catch { throw new Error('That login code is damaged: copy it again.'); }
+  if (!d.c || !d.r) throw new Error('That login code is incomplete: copy it again.');
+  setClientId(d.c);
+  localStorage.setItem(K.tok, JSON.stringify({ access_token: '', refresh_token: d.r, expires_at: 0 }));
+}
+/** Link that opens a Quest app and hands it this login (the code sits in the #fragment, never sent to a server). */
+export function sendToAppLink(pkg) {
+  return appLink(pkg, `#bblogin=${loginCode()}`);
+}
+export const APP_PKGS = APPS;
+
 export function appPackage() { try { return sessionStorage.getItem(K.app) || ''; } catch { return ''; } }
 
 

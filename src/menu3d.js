@@ -168,6 +168,7 @@ export class Menu {
 
   /* ---------------- corner (right) ---------------- */
   _drawCorner(g, p) {
+    if (this.loginHelp) return this._drawLoginHelp(g, p);
     const W = p.W, prof = this.api.profile(), s = this.api.settings();
     g.textAlign = 'center'; g.textBaseline = 'top';
     g.fillStyle = C.cyan; g.font = FONT(800, 22); g.fillText('YOUR CORNER', W / 2, 26);
@@ -198,7 +199,36 @@ export class Menu {
     help.forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
   }
 
+  /** In the Quest app, Spotify's login can't open, so explain the Quest Browser route. */
+  _drawLoginHelp(g, p) {
+    const W = p.W;
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillStyle = C.cyan; g.font = FONT(800, 24); g.fillText('LOG IN TO SPOTIFY', W / 2, 26);
+    g.textAlign = 'left'; g.fillStyle = C.text; g.font = FONT(600, 21);
+    const lines = [
+      '1. Press the Meta button and open the',
+      '   Quest Browser.',
+      '2. Go to  satanicgoomba-cloud.github.io',
+      '3. Enter your Client ID (first time) and',
+      '   tap  Log in with Spotify  (Google and',
+      '   Facebook work there).',
+      '4. Tap  Open BeatBrawler with this login',
+      '   - or tap  Copy login code, come back',
+      '   here and press PASTE LOGIN CODE.',
+    ];
+    lines.forEach((l, i) => g.fillText(l, 30, 80 + i * 34));
+    p.button('paste', 30, 420, W - 60, 60, 'PASTE LOGIN CODE', { style: 'primary', color: '#1ed760', size: 22 });
+    p.button('back', 30, 500, W - 60, 56, 'BACK', { size: 20 });
+    g.fillStyle = C.muted; g.font = FONT(500, 17);
+    g.fillText('The code stays on this headset. Don\'t share it.', 30, 580);
+  }
+
   _clickCorner(id) {
+    if (this.loginHelp) {
+      if (id === 'paste') this.api.onPasteCode();
+      else if (id === 'back') this.loginHelp = false;
+      this.corner.redraw(); return;
+    }
     const s = this.api.settings();
     if (id === 'lat:-') this.api.setSetting('latency', (s.latency || 0) - 10);
     else if (id === 'lat:+') this.api.setSetting('latency', (s.latency || 0) + 10);

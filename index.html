@@ -38,6 +38,17 @@
         <button id="editId" class="link" type="button">Change Client ID</button>
       </section>
 
+      <section id="appLogin" hidden>
+        <h2>Log in to Spotify</h2>
+        <p class="small">Spotify's login can't open inside this app on Quest, so log in with the Quest Browser instead (Google, Facebook and Apple sign-in work there):</p>
+        <ol class="small">
+          <li>Open the <b>Quest Browser</b> and go to <code>satanicgoomba-cloud.github.io</code></li>
+          <li>Enter your Client ID there (first time only) and tap <b>Log in with Spotify</b>.</li>
+          <li>Back on that page, tap <b>Open BB Setup with this login</b> (or <b>Copy login code</b>, then come back here and paste it below).</li>
+        </ol>
+        <div class="row"><input id="codeInput" placeholder="Paste login code (BB1…)" autocomplete="off" spellcheck="false" /><button id="useCode">Use code</button></div>
+      </section>
+
       <section id="loggedIn" hidden>
         <div class="me">
           <img id="avatar" alt="" />
@@ -49,6 +60,14 @@
           <select id="output"><option value="sdk">This headset/browser (Web Playback SDK)</option></select>
         </label>
         <button id="refreshDevices" class="link" type="button">Refresh Spotify Connect devices</button>
+        <div id="sendToApp" class="sendbox" hidden>
+          <p class="small"><b>Quest app:</b> hand this login to the installed app (it stays on this headset):</p>
+          <div class="actions">
+            <a class="big" id="sendWindow" href="#">Open BB Setup with this login</a>
+            <a class="big alt" id="sendImmersive" href="#">Open BeatBrawler with this login</a>
+          </div>
+          <p class="small muted">Or <button id="copyCode" class="link" type="button">copy login code</button> and paste it in the app. Treat the code like a password: don't share it.</p>
+        </div>
       </section>
 
       <section id="options">

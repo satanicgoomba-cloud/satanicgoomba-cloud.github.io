@@ -22,6 +22,7 @@ button { background: var(--pink); border: 0; border-radius: 12px; padding: 10px 
 button:hover { filter: brightness(1.1); }
 button:disabled { opacity: 0.5; cursor: default; }
 button.big { padding: 14px 20px; font-size: 18px; }
+.sendbox { margin-top: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
 a.big { display: block; text-align: center; background: var(--green); color: #04130a; border-radius: 12px; padding: 14px 20px; font-size: 18px; font-weight: 800; text-decoration: none; }
 button.alt { background: rgba(255,255,255,0.1); border: 1px solid var(--line); }
 button.spotify { background: var(--green); color: #04130a; width: 100%; }
@@ -59,3 +60,4 @@ select option { background: #1a0b33; }
 .plist li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
 .plist li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plist ol { list-style: none; padding: 0; margin: 0; }
+a.big.alt { background: rgba(255,255,255,0.1); color: inherit; border: 1px solid var(--line); }
