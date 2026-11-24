@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwutcyej';
-import { activeMods, modMultiplier } from './mods.js?v=mwutcyej';
-import { RideStyle } from './ride.js?v=mwutcyej';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwutcyej';
-import { ShootStyle } from './shoot.js?v=mwutcyej';
-import { SaberFx } from './saberfx.js?v=mwutcyej';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwutesp3';
+import { activeMods, modMultiplier } from './mods.js?v=mwutesp3';
+import { RideStyle } from './ride.js?v=mwutesp3';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwutesp3';
+import { ShootStyle } from './shoot.js?v=mwutesp3';
+import { SaberFx } from './saberfx.js?v=mwutesp3';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)

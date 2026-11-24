@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwutcyej';
-import * as sp from './spotify-api.js?v=mwutcyej';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwutcyej';
+import * as auth from './spotify-auth.js?v=mwutesp3';
+import * as sp from './spotify-api.js?v=mwutesp3';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwutesp3';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwutcyej';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwutcyej';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwutcyej';
-import { Game } from './game.js?v=mwutcyej';
-import { modLabels } from './mods.js?v=mwutcyej';
-import * as leaks from './leaks.js?v=mwutcyej';
-import * as gdrive from './gdrive.js?v=mwutcyej';
-import { Pointers } from './ui3d.js?v=mwutcyej';
-import { Menu } from './menu3d.js?v=mwutcyej';
-import * as prof from './profile.js?v=mwutcyej';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwutesp3';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwutesp3';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwutesp3';
+import { Game } from './game.js?v=mwutesp3';
+import { modLabels } from './mods.js?v=mwutesp3';
+import * as leaks from './leaks.js?v=mwutesp3';
+import * as gdrive from './gdrive.js?v=mwutesp3';
+import { Pointers } from './ui3d.js?v=mwutesp3';
+import { Menu } from './menu3d.js?v=mwutesp3';
+import * as prof from './profile.js?v=mwutesp3';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -68,6 +68,8 @@ const menu = new Menu(game.scene, pointers, {
   searchState: () => S.search,
   onSearch: (q, now) => runSearch(q, now),
   loggedIn: () => auth.isLoggedIn(),
+  likedMsg: () => S.likedMsg || '',
+  onLikedRetry: () => { S.likedMsg = ''; menu.refresh(); loadSpotify(); },
   best: (id) => prof.bestFor(prof.loadStats().tracks[id], settings.style || 'saber'),
   settings: () => settings,
   setSetting: (k, v) => {
@@ -804,20 +806,30 @@ function renderAuth() {
 async function loadSpotify() {
   const saved = sp.cachedLiked(); // show the list saved on this device right away (and if Spotify is busy)
   if (saved && !S.liked.length) { S.liked = saved.tracks.filter((t) => t.playable); menu.refresh(); }
+  const say = (m) => { S.likedMsg = m; $('libInfo').textContent = m; menu.refresh(); };
+  S.likedMsg = '';
+  const miss = auth.missingScopes();
+  if (miss && miss.includes('user-library-read')) { say('This Spotify login can\'t read your Liked Songs: log out and log in again on the start page.'); return; }
   try {
     S.profile = await sp.getProfile(); prof.saveProfile(S.profile); renderAuth();
     $('libInfo').textContent = 'Loading Liked Songs…';
+    let seen = 0;
     S.liked = await sp.getLikedSongs({
-      onPage: (t) => { S.liked = t.filter((x) => x.playable); $('libInfo').textContent = `Loading Liked Songs… ${t.length}`; menu.refresh(); },
+      onPage: (t) => { seen = t.length; S.liked = t.filter((x) => x.playable); $('libInfo').textContent = `Loading Liked Songs… ${t.length}`; menu.refresh(); },
     });
-    $('libInfo').textContent = S.liked.length ? `${S.liked.length} Liked Songs ready as levels.` : 'No Liked Songs found. Like some songs in Spotify, or use Practice.';
+    spLog(`liked songs: ${seen} saved, ${S.liked.length} playable`);
+    if (S.liked.length) $('libInfo').textContent = `${S.liked.length} Liked Songs ready as levels.`;
+    else say(seen ? `Spotify sent ${seen} Liked Songs but says none can play in your country.` : 'Spotify says you have no Liked Songs. Like some in Spotify, then try again.');
     menu.refresh();
     prefetchBpm(S.liked.slice(0, 6)); // the top of the song wall gets real tempos first
   } catch (e) {
-    console.error(e);
-    if (S.liked.length && e.status === 429) status(`${e.message}. Showing your saved Liked Songs (${S.liked.length}).`, true);
-    else if (e.status === 403) status('Spotify said 403: add your Spotify account under User Management in the app dashboard (Development Mode).', true);
-    else status(e.message, true);
+    console.error(e); spLog(`liked songs failed: ${e.status || ''} ${e.message}`);
+    const why = e.status === 429 ? e.message
+      : e.status === 403 ? `Spotify refused (403: ${e.message}). Check your account is under User Management in the Spotify app dashboard, then log in again.`
+      : e.status === 401 ? 'Your Spotify login ran out: log in again on the start page.'
+      : `Couldn't load Liked Songs: ${e.status ? `${e.status} ` : ''}${e.message}`;
+    if (S.liked.length) status(`${why} Showing your saved Liked Songs (${S.liked.length}).`, true);
+    else { say(why); status(why, true); }
   }
 }
 
