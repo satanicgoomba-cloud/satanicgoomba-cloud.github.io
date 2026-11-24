@@ -1,17 +1,34 @@
-import { getAccessToken } from './spotify-auth.js?v=mwubf2ld';
+import { getAccessToken } from './spotify-auth.js?v=mwutcyej';
 
 const API = 'https://api.spotify.com/v1';
 
-export async function api(path, opts = {}) {
+// Spotify's request limit: a short Retry-After is waited out (twice at most); a long one (the app's quota is
+// used up) stops all calls until then with a clear message, instead of hanging or hammering Spotify, which
+// only makes the wait longer.
+let coolUntil = 0;
+const coolErr = () => {
+  const min = Math.max(1, Math.ceil((coolUntil - Date.now()) / 60000));
+  return Object.assign(new Error(`Spotify's request limit for this app is used up: try again in about ${min} min (Practice and Leaks still work)`), { status: 429, cooldown: true });
+};
+export const coolingDown = () => Date.now() < coolUntil;
+
+export async function api(path, opts = {}, tries = 0) {
+  if (Date.now() < coolUntil) throw coolErr();
   const token = await getAccessToken();
   const r = await fetch(path.startsWith('http') ? path : API + path, {
     ...opts,
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
   if (r.status === 429) {
-    const wait = Number(r.headers.get('Retry-After') || 2);
-    await new Promise((res) => setTimeout(res, wait * 1000));
-    return api(path, opts);
+    const wait = Number(r.headers.get('Retry-After')) || 2;
+    let quota = false; try { quota = /QUOTA/i.test(await r.text()); } catch { /* ignore */ }
+    if (!quota && wait <= 10 && tries < 2) {
+      await new Promise((res) => setTimeout(res, wait * 1000));
+      return api(path, opts, tries + 1);
+    }
+    coolUntil = Date.now() + Math.max(wait, 30) * 1000;
+    console.warn(`Spotify 429: waiting ${wait}s${quota ? ' (quota exceeded)' : ''}`);
+    throw coolErr();
   }
   if (r.status === 204 || r.status === 202) return null;
   const text = await r.text();
@@ -50,16 +67,28 @@ function slimTrack(t) {
 /**
  * Liked Songs, newest first. Calls onPage(tracksSoFar) after every page so the
  * game can start on page one while the rest loads. Capped to keep within dev-mode quota.
+ * The list is kept on this device: if the first page matches the saved list (same total, same newest
+ * songs), the saved list is used and no more pages are fetched.
  */
+const LIKED = 'bb.likedCache';
+export function cachedLiked() { try { const c = JSON.parse(localStorage.getItem(LIKED)); return c && Array.isArray(c.tracks) ? c : null; } catch { return null; } }
 export async function getLikedSongs({ max = 1000, onPage } = {}) {
-  const out = [];
-  let url = '/me/tracks?limit=50&market=from_token';
+  const out = [], cache = cachedLiked();
+  let url = '/me/tracks?limit=50&market=from_token', total = 0, first = true;
   while (url && out.length < max) {
     const j = await api(url);
     for (const it of j.items) if (it.track && it.track.id && it.track.type !== 'episode') out.push(slimTrack(it.track));
+    if (first) {
+      first = false; total = j.total;
+      if (cache && cache.total === total && out.length && out.slice(0, 20).every((t, i) => cache.tracks[i] && cache.tracks[i].id === t.id)) {
+        if (onPage) onPage(cache.tracks);
+        return cache.tracks.filter((t) => t.playable);
+      }
+    }
     if (onPage) onPage(out);
     url = j.next;
   }
+  try { localStorage.setItem(LIKED, JSON.stringify({ total, at: Date.now(), tracks: out })); } catch { /* full: skip */ }
   return out.filter((t) => t.playable);
 }
 

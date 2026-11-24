@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwubf2ld';
-import { getAccessToken } from './spotify-auth.js?v=mwubf2ld';
+import * as sp from './spotify-api.js?v=mwutcyej';
+import { getAccessToken } from './spotify-auth.js?v=mwutcyej';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -132,6 +132,9 @@ export class ConnectPlayer {
   }
   async _refresh() {
     if (this.soft) return; // silently paused: Spotify keeps running at volume 0, the game stays still
+    // Only ask Spotify while a song is running in the game: polling in the menus used up the app's
+    // Spotify request limit (then Liked Songs and search stopped working).
+    if (!this.track || this.userPaused || document.hidden || sp.coolingDown()) return;
     const sent = performance.now();
     let s;
     try { s = await sp.getPlaybackState(); } catch { return; }

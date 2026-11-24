@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwubf2ld';
-import * as sp from './spotify-api.js?v=mwubf2ld';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwubf2ld';
+import * as auth from './spotify-auth.js?v=mwutcyej';
+import * as sp from './spotify-api.js?v=mwutcyej';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwutcyej';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwubf2ld';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwubf2ld';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwubf2ld';
-import { Game } from './game.js?v=mwubf2ld';
-import { modLabels } from './mods.js?v=mwubf2ld';
-import * as leaks from './leaks.js?v=mwubf2ld';
-import * as gdrive from './gdrive.js?v=mwubf2ld';
-import { Pointers } from './ui3d.js?v=mwubf2ld';
-import { Menu } from './menu3d.js?v=mwubf2ld';
-import * as prof from './profile.js?v=mwubf2ld';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwutcyej';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwutcyej';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwutcyej';
+import { Game } from './game.js?v=mwutcyej';
+import { modLabels } from './mods.js?v=mwutcyej';
+import * as leaks from './leaks.js?v=mwutcyej';
+import * as gdrive from './gdrive.js?v=mwutcyej';
+import { Pointers } from './ui3d.js?v=mwutcyej';
+import { Menu } from './menu3d.js?v=mwutcyej';
+import * as prof from './profile.js?v=mwutcyej';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -760,7 +760,7 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) { recheckLogin(); checkSpotifyAwake(); }
 });
 $('logout').onclick = () => {
-  auth.logout(); localStorage.removeItem('bb.profile'); S.profile = null; S.liked = [];
+  auth.logout(); localStorage.removeItem('bb.profile'); localStorage.removeItem('bb.likedCache'); S.profile = null; S.liked = [];
   if (S.spotify) { S.spotify.dispose(); S.spotify = null; }
   status('Disconnected from Spotify. Your game stats are kept; reset them under Profile.'); renderAuth();
 };
@@ -802,6 +802,8 @@ function renderAuth() {
 }
 
 async function loadSpotify() {
+  const saved = sp.cachedLiked(); // show the list saved on this device right away (and if Spotify is busy)
+  if (saved && !S.liked.length) { S.liked = saved.tracks.filter((t) => t.playable); menu.refresh(); }
   try {
     S.profile = await sp.getProfile(); prof.saveProfile(S.profile); renderAuth();
     $('libInfo').textContent = 'Loading Liked Songs…';
@@ -813,7 +815,8 @@ async function loadSpotify() {
     prefetchBpm(S.liked.slice(0, 6)); // the top of the song wall gets real tempos first
   } catch (e) {
     console.error(e);
-    if (e.status === 403) status('Spotify said 403: add your Spotify account under User Management in the app dashboard (Development Mode).', true);
+    if (S.liked.length && e.status === 429) status(`${e.message}. Showing your saved Liked Songs (${S.liked.length}).`, true);
+    else if (e.status === 403) status('Spotify said 403: add your Spotify account under User Management in the app dashboard (Development Mode).', true);
     else status(e.message, true);
   }
 }
