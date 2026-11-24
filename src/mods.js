@@ -4,7 +4,7 @@ export const STYLES = {
   saber: { label: 'SLICE', desc: 'Sabers: slash cubes the way the arrow points, avoid mines, dodge walls' },
   ride: { label: 'RIDE', desc: 'Orbs: touch notes with the matching hand, ride the light rails, dodge walls' },
   shoot: { label: 'SHOOT', desc: 'Pistols: shoot enemies on the beat, dodge their bullets, whip close ones' },
-  still: { label: 'STILL', desc: 'Time moves when you move: crystal enemies, frozen bullets, throw empty guns' },
+  still: { label: 'STILL', desc: 'Time moves when you move: grab weapons from your table, throw them when spent, block bullets' },
 };
 
 // mult: score multiplier while the modifier is on. only: styles it applies to (others ignore it).

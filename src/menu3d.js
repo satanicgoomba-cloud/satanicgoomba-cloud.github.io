@@ -1,5 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwu7j170';
-import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwu7j170';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwu7v3hh';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwu7v3hh';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -334,7 +334,7 @@ export class Menu {
       saber: ['Slice pink cubes with the left saber, blue with the right', 'Swing the way the arrow points · dots: any way', 'Keep sabers off mines · duck and lean past walls'],
       ride: ['Touch pink notes with the left hand, blue with the right', 'Green: either hand · gold: both hands together', 'Hold your hand on the rails to the end · dodge walls'],
       shoot: ['Trigger/pinch fires · shoot enemies on the beat', 'Dodge red bullets (head only) · whip close ones', 'Squeeze the grip (or point down) to reload'],
-      still: ['Time moves only when you move', 'Stand still: bullets freeze · swat them away', 'Out of ammo? Throw the gun (trigger or grip)'],
+      still: ['Time moves only when you move · trigger fires', 'Spent? Throw it (grip) · grab another from the table', 'Block bullets with a weapon · melee close enemies'],
     }[st];
     const help = this.api.inVR()
       ? ['Trigger or pinch: select · Stick: scroll', ...how, 'Pause: B/Y, Meta button, or tap left wrist · A/X: tap the beat']
