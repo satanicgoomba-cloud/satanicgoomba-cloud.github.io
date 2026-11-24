@@ -1,5 +1,5 @@
-import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwv1noun';
-import { fetchBeatSaver } from './beatsaver.js?v=mwv1noun';
+import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwv26029';
+import { fetchBeatSaver } from './beatsaver.js?v=mwv26029';
 // Song structure without touching Spotify's audio. Three public sources, combined into one energy
 // curve (how intense each moment is) plus, where possible, the real beat positions:
 //

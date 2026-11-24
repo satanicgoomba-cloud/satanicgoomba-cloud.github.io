@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwv1noun';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwv26029';
 
 // RIDE style: glowing orbs in your hands. Touch each note with the matching hand as it reaches you
 // (scored on how centred your hand is: no swing needed), keep your hand on the light rails from
@@ -76,10 +76,17 @@ export class RideStyle {
     const pos = (n) => ({ px: (n.col - 1.5) * 0.3 + (r() - 0.5) * 0.1, ry: n.row + (r() - 0.5) * 0.3 });
     const used = new Set();
     let nextRail = notes.length ? notes[0].t + spb * 8 : 0;
+    let railBusy = null; // { hand, t1 }: that hand is riding a rail until t1
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i];
       if (used.has(i)) continue;
       const twin = notes[i + 1] && Math.abs(notes[i + 1].t - n.t) < 5 && notes[i + 1].hand !== n.hand ? i + 1 : -1;
+      if (twin >= 0 && railBusy && n.t <= railBusy.t1 + 120) { // one hand is on a rail: the free hand takes it
+        used.add(twin);
+        const free = n.hand === railBusy.hand ? notes[twin] : n;
+        out.push({ id: free.id, t: free.t, type: 'orb', kind: free.hand, hand: free.hand, ...pos(free) });
+        continue;
+      }
       if (twin >= 0) { // both sabers at once -> one gold note for both hands
         used.add(twin);
         out.push({ id: n.id, t: n.t, type: 'orb', kind: 'both', px: (r() - 0.5) * 0.2, ry: Math.min(1.6, (n.row + notes[twin].row) / 2 + 0.3) });
@@ -101,6 +108,7 @@ export class RideStyle {
         }
         out.push({ id: n.id, t: n.t, type: 'orb', kind: n.hand, hand: n.hand, ...p, railHead: true });
         out.push({ id: n.id + 100000, t: n.t, type: 'rail', hand: n.hand, dur: keys[keys.length - 1].t - n.t, keys, scored: true });
+        railBusy = { hand: n.hand, t1: keys[keys.length - 1].t };
         nextRail = keys[keys.length - 1].t + spb * 4 * (step >= 1 ? 2 : 3) * (0.75 + r() * 0.5);
         continue;
       }
