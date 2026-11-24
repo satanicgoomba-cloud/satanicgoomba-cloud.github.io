@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwv3ypve';
-import { getAccessToken } from './spotify-auth.js?v=mwv3ypve';
+import * as sp from './spotify-api.js?v=mwv43duc';
+import { getAccessToken } from './spotify-auth.js?v=mwv43duc';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -127,8 +127,14 @@ export function sameTrack(item, track) {
 export class ConnectPlayer {
   constructor(device) { this.device = device; this.name = `Spotify Connect: ${device.name}`; this.clock = new Clock(); this.track = null; }
   get playing() { return this.clock.playing; }
-  async init() {
-    this._poll = setInterval(() => this._refresh(), 2000);
+  // How often to ask Spotify where the song is. Every 2 s used ~100 requests per song, and a few songs in a
+  // row used up the app's Spotify request limit. The game's own clock keeps time in between, so: quick
+  // checks until two in a row agree with the clock, then every 15 s (back to quick ones if it drifts).
+  async init() { this.calm = 0; this._tick(); }
+  _tick() {
+    if (this.disposed) return;
+    const ms = this.calm >= 2 ? 15000 : 2500;
+    this._poll = setTimeout(async () => { try { await this._refresh(); } finally { this._tick(); } }, ms);
   }
   async _refresh() {
     if (this.soft) return; // silently paused: Spotify keeps running at volume 0, the game stays still
@@ -155,11 +161,13 @@ export class ConnectPlayer {
       }
     }
     // "Playing" but the position isn't moving: a stale report. Keep our own clock running.
-    if (playing && prev && Math.abs(s.progress_ms - prev.progress) < 150 && recv - prev.at > 1500) { this.report.stale = true; return; }
+    if (playing && prev && Math.abs(s.progress_ms - prev.progress) < 150 && recv - prev.at > 1500) { this.report.stale = true; this.calm = 0; return; }
+    const drift = Math.abs(s.progress_ms + (performance.now() - (sent + recv) / 2) - this.clock.now());
+    this.calm = playing && drift < 120 ? this.calm + 1 : 0;
     // A big correction (>0.35 s) is only trusted when two reports agree the song advances in real time.
     if (playing && Math.abs(s.progress_ms + (performance.now() - (sent + recv) / 2) - this.clock.now()) > 350) {
       const rateOk = prev && Math.abs((s.progress_ms - prev.progress) - (recv - prev.at)) < 600;
-      if (!rateOk) { this.report.unconfirmed = true; return; }
+      if (!rateOk) { this.report.unconfirmed = true; this.calm = 0; return; }
     }
     // Assume the server sampled the position half-way through the round trip.
     this.clock.sync(s.progress_ms, playing, (sent + recv) / 2, 400);
@@ -168,13 +176,13 @@ export class ConnectPlayer {
   async play(track, fromMs = 0) {
     this.track = track;
     this.clock.sync(fromMs, false);
-    this.userPaused = false; this.prevReport = null;
+    this.userPaused = false; this.prevReport = null; this.calm = 0;
     await sp.playTrack(track.uri, this.device.id, Math.round(fromMs));
     // Wait until Spotify shows the song actually running (position moving): devices like the Quest app
     // can take a few seconds to start. Starting the fight before that made the missiles jump back.
     const t0 = performance.now(); let prev = null, last = null, heard = false;
     while (performance.now() - t0 < 9000) {
-      await new Promise((r) => setTimeout(r, 450));
+      await new Promise((r) => setTimeout(r, 700));
       const sent = performance.now(); let st;
       try { st = await sp.getPlaybackState(); } catch { heard = true; continue; } // network trouble: don't blame the device
       const recv = performance.now();
@@ -213,11 +221,11 @@ export class ConnectPlayer {
       const { at, vol } = this.soft; this.soft = null;
       await sp.playTrack(this.track.uri, this.device.id, Math.round(at)).catch(() => {});
       await sp.setVolume(vol, this.device.id).catch(() => {}); this.device.volume_percent = vol; forgetSoft();
-      this.clock.sync(at, true); this.prevReport = null;
+      this.clock.sync(at, true); this.prevReport = null; this.calm = 0;
       setTimeout(() => this._refresh(), 600);
       return;
     }
-    await sp.resume(this.device.id); this.clock.sync(this.clock.now(), true); setTimeout(() => this._refresh(), 400);
+    await sp.resume(this.device.id); this.clock.sync(this.clock.now(), true); this.calm = 0; setTimeout(() => this._refresh(), 400);
   }
   positionMs() { return this.clock.now(); }
   /** One-line sync status for the HUD. */
@@ -231,7 +239,7 @@ export class ConnectPlayer {
     return `Spotify ${r.playing ? 'playing' : 'paused'} ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}${r.stale ? ' (stale, using game clock)' : ''} · ${age}s ago`;
   }
   activate() {}
-  dispose() { clearInterval(this._poll); }
+  dispose() { this.disposed = true; clearTimeout(this._poll); }
 }
 
 /* ---------------- Practice: synthesized tracks with real build-ups and drops (no Spotify) ---------------- */
