@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { COLORS, ENERGY } from './shared.js?v=mwu8geng';
-import { VoxelBody } from './voxels.js?v=mwu8geng';
-import { WEAPONS, ORDER, weaponModel, WeaponTable } from './armory.js?v=mwu8geng';
+import { COLORS, ENERGY } from './shared.js?v=mwubf2ld';
+import { VoxelBody } from './voxels.js?v=mwubf2ld';
+import { WEAPONS, ORDER, weaponModel, WeaponTable } from './armory.js?v=mwubf2ld';
 
 // SHOOT style: a pistol in each hand while the track carries you forward. Enemies step out ahead;
 // shoot each one on its beat (points for timing and for aim), dodge the bullets of the ones you
@@ -21,6 +21,12 @@ const SLIDE_S = 0.45, SLIDE_M = 2.2; // entrance: slides this far in from its si
 const APPEAR_MS = 2600;      // enemies step out this long before their beat
 const FIRE_MS = 650;         // an enemy still standing this long after its beat shoots at you
 const MAG = 12;
+// SHOOT cover: each enemy crouches behind an invincible box and pops up on its beat
+const POP_MS = 200, RISE_MS = 160;   // starts rising this long before its beat, fully up RISE_MS later
+const SHOT_WIN = 900;               // how long after its beat an enemy still counts as being shot at
+const SINK = 0.95;                   // how far a crouched figure sits below the box top
+const COVER = { w: 0.9, h: 1.05, d: 0.42, gap: 0.6 }; // box size, and how far in front of the enemy it stands
+const CLIP = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0); // nothing of a crouched figure shows under the floor
 // STILL: time moves when you move
 const STILL_MIN = 0.06;      // time speed when you stand completely still
 const CLEAN_BONUS = 1.25;    // kills are worth this much more until you get hit
@@ -51,6 +57,7 @@ export class ShootStyle {
     game.popTex.swat = label('SWAT', '#ffffff');
     game.popTex.deflect = label('DEFLECTED!', '#9ad8ff', 320);
     game.popTex.grab = label('GRAB A WEAPON', '#ffffff', 360);
+    game.popTex.cover = label('COVER', '#b48cff');
     // pistols
     const metal = new THREE.MeshStandardMaterial({ color: 0x23202e, metalness: 0.85, roughness: 0.3 });
     for (const h of Object.values(game.sabers)) {
@@ -78,13 +85,23 @@ export class ShootStyle {
       h.mesh.add(gun);
       h.gun = { mesh: gun, ammo, flash, laser, magIn, magT: 1, rounds: MAG, downT: 0, muzzle: new THREE.Vector3(), dir: new THREE.Vector3(), models, palm, weapon: 'pistol', cd: 0, trig: false };
     }
-    // enemies: voxel figures (see voxels.js)
+    // enemies: voxel figures (see voxels.js), each with its cover box in SHOOT
+    const coverMat = new THREE.MeshStandardMaterial({ color: 0x1a1430, metalness: 0.6, roughness: 0.45 });
+    const coverEdge = new THREE.LineBasicMaterial({ color: 0x8a5cff });
     this.enemies = [];
     for (let i = 0; i < 30; i++) {
       const m = new THREE.Group(); m.visible = false;
       m.userData = { vox: new VoxelBody(m) };
-      s.add(m); this.enemies.push(m);
+      m.userData.vox.mat.clippingPlanes = [CLIP];
+      const cover = new THREE.Group(); cover.visible = false;
+      const geo = new THREE.BoxGeometry(COVER.w, COVER.h, COVER.d); geo.translate(0, COVER.h / 2, 0);
+      cover.add(new THREE.Mesh(geo, coverMat), new THREE.LineSegments(new THREE.EdgesGeometry(geo), coverEdge));
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(COVER.w * 0.8, 0.03, 0.005), coverEdge); strip.position.set(0, COVER.h * 0.72, COVER.d / 2 + 0.003); cover.add(strip);
+      m.userData.cover = cover;
+      s.add(m, cover); this.enemies.push(m);
     }
+    game.r.localClippingEnabled = true;
+    this._ray = new THREE.Ray(); this._box = new THREE.Box3(new THREE.Vector3(-COVER.w / 2, 0, -COVER.d / 2), new THREE.Vector3(COVER.w / 2, COVER.h, COVER.d / 2));
     // enemy bullets
     this.bullets = [];
     for (let i = 0; i < 24; i++) {
@@ -152,7 +169,7 @@ export class ShootStyle {
   live() { const g = this.g; return g.guns && g.mode === 'play' && !g.paused && !g.run.failed && g.player && g.player.playing; }
   walkSpeed(d) { return WALK[d] || 2.8; }
   reset() {
-    for (const m of this.enemies) { m.visible = false; m.userData.used = false; m.userData.vox.mesh.count = 0; }
+    for (const m of this.enemies) { m.visible = false; m.userData.used = false; m.userData.vox.mesh.count = 0; m.userData.cover.visible = false; m.userData.vox.mesh.position.y = 0; }
     for (const b of this.bullets) b.visible = false;
     for (const t of this.tracers) t.visible = false;
     for (const m of this.mags) m.visible = false;
@@ -195,7 +212,70 @@ export class ShootStyle {
     const u = m.userData;
     u.vox.build(n.hp, this.still);
     m.rotation.set(0, 0, 0); m.visible = true;
-    return { ...n, mesh: m, hpLeft: n.hp, dead: false, dying: 0, fired: false, risen: 0, home: new THREE.Vector3(n.x, 0, 0) };
+    const a = { ...n, mesh: m, hpLeft: n.hp, dead: false, dying: 0, fired: false, risen: 0, covered: !this.still && !n.close, up: 1, coverK: 0 };
+    a.up = a.covered ? 0 : 1;
+    u.vox.mesh.position.y = a.covered ? -SINK : 0;
+    u.cover.visible = false; u.cover.scale.y = 0.01; u.cover.rotation.set(0, 0, 0);
+    this._separate(a);
+    a.home = new THREE.Vector3(a.x, 0, 0);
+    return a;
+  }
+
+  /* ---------- keep every enemy (and its cover) clear of the others' line of fire ---------- */
+  /** Close enemies rush you along a fixed line from their side (so they never cross the middle); others hold their x. */
+  _xAt(n, z) { return n.close ? Math.sign(n.x) * Math.min(3.6, Math.abs(n.x) * Math.abs(z) / 1.15) : n.x; }
+  _zAt(n, tau, spd) { // where an enemy is at song time tau, or null while it isn't on screen
+    const tt = (n.t - tau) / 1000;
+    if (tt * 1000 >= APPEAR_MS) return null;
+    const z = n.zb - tt * spd;
+    return z > (n.close ? -0.45 : -1.4) ? null : z;
+  }
+  _clearance(a, others, spd) {
+    // While an enemy is up to be shot (from popping up until a beat or so later), nothing nearer may be in its
+    // line of fire: no other enemy and no cover box. Things behind it don't matter. Returns the smallest angular
+    // gap (radians) to anything that would be in the way; negative means something is.
+    let worst = Infinity;
+    const half = (n, d) => Math.atan2(n.covered ? COVER.w / 2 + 0.05 : 0.34, d);
+    const check = (tgt, o) => {
+      for (let tau = tgt.t - POP_MS; tau <= tgt.t + SHOT_WIN; tau += 50) {
+        if (tau > o.t + SHOT_WIN + 600) break;          // by then it's been dealt with (or has fired and is about to go)
+        const zt = this._zAt(tgt, tau, spd), zo = this._zAt(o, tau, spd);
+        if (zt === null || zo === null) continue;
+        const xt = this._xAt(tgt, zt), xo = this._xAt(o, zo);
+        const dt = Math.hypot(xt, zt), dOb = Math.hypot(xo, zo) - (o.covered ? COVER.gap : 0);
+        if (dOb > dt - 0.3) continue;                  // behind (or beside) the target: not in the way
+        const gap = Math.abs(Math.atan2(xt, -zt) - Math.atan2(xo, -zo)) - half(tgt, dt) - half(o, dOb);
+        if (gap < worst) worst = gap;
+      }
+    };
+    for (const o of others) { check(a, o); check(o, a); }
+    return worst;
+  }
+  _separate(a) {
+    const g = this.g, spd = g.speed(), others = g.active.filter((o) => o.type === 'enemy' && o !== a && !o.dead);
+    if (!others.length) return true;
+    const side = Math.sign(a.x) || 1, want = THREE.MathUtils.degToRad(2.5);
+    if (this._clearance(a, others, spd) >= want) return true;
+    const cands = [];
+    const xs = a.close ? [0.45, 0.32, 0.6, 0.7] : Array.from({ length: 16 }, (_, i) => 0.8 + i * 0.2);
+    const zs = a.close ? [a.zb] : [a.zb, Math.max(-12, a.zb - 2), Math.min(-5, a.zb + 2), Math.max(-12, a.zb - 4), Math.min(-5, a.zb + 4)];
+    for (const sd of [side, -side]) for (const ax of xs) for (const z of zs) cands.push({ x: sd * ax, zb: z, cost: (sd === side ? 0 : 3) + Math.abs(ax - Math.abs(a.x)) + Math.abs(z - a.zb) * 0.3 });
+    cands.sort((p, q) => p.cost - q.cost);
+    let best = null, bestGap = -Infinity;
+    const x0 = a.x, z0 = a.zb;
+    for (const c of cands) {
+      a.x = c.x; a.zb = c.zb;
+      const gap = this._clearance(a, others, spd);
+      if (gap >= want) { best = c; bestGap = gap; break; }
+      if (gap > bestGap) { bestGap = gap; best = c; }
+    }
+    a.x = best ? best.x : x0; a.zb = best ? best.zb : z0;
+    if (bestGap >= want || !a.close) return bestGap >= want;
+    // no clear lane for a rusher: it stays back behind cover like the others instead
+    a.close = false; a.covered = !this.still; a.up = a.covered ? 0 : 1;
+    a.mesh.userData.vox.mesh.position.y = a.covered ? -SINK : 0;
+    a.x = side * 2; a.zb = -8;
+    return this._separate(a);
   }
 
   place(n, tt, pos, dt) {
@@ -204,18 +284,59 @@ export class ShootStyle {
     const shown = tt * 1000 < APPEAR_MS;
     n.risen = shown ? Math.min(1, n.risen + dt * g.tscale / SLIDE_S) : 0;
     const ease = 1 - (1 - n.risen) ** 3;                 // slide in from its own side, fading up
-    m.position.set(n.x + Math.sign(n.x || 1) * SLIDE_M * (1 - ease), 0, z);
-    m.rotation.y = Math.atan2(-n.x, -z);                 // face you
-    if (n.dead) return u.vox.update(dt * g.tscale);      // breaking apart; gone once every cube has settled and shrunk
+    const x = this._xAt(n, z);
+    m.position.set(x + Math.sign(n.x || 1) * SLIDE_M * (1 - ease), 0, z);
+    m.rotation.y = Math.atan2(-x, -z);                   // face you
+    if (n.dead) { this._placeCover(n, z, dt, true); const done = u.vox.update(dt * g.tscale); if (done) u.cover.visible = false; return done; } // breaking apart; gone once every cube has settled and shrunk
     u.vox.assemble(n.risen);                              // cubes fly in to build the figure
     if (u.vox.loose) u.vox.update(dt * g.tscale);         // chipped armour still falling
     m.visible = shown;
+    this._placeCover(n, z, dt, shown);
     if (!shown) return false;
     // still standing after its beat: it shoots at you
     if (!n.fired && pos > n.t + FIRE_MS && n.risen >= 1 && this.live()) { n.fired = true; if (!g.mods.noBullets) this._enemyFire(n); }
     // walked past you without being dealt with
-    if (z > (n.close ? -0.45 : -1.4)) { g._miss(n, new THREE.Vector3(n.x, 1.6, z)); return true; }
+    if (z > (n.close ? -0.45 : -1.4)) { g._miss(n, new THREE.Vector3(n.x, 1.6, z)); u.cover.visible = false; return true; }
     return false;
+  }
+
+  /** SHOOT: the box rises out of the floor in front of the enemy (it doesn't slide), the enemy pops up on its beat. */
+  _placeCover(n, z, dt, shown) {
+    const u = n.mesh.userData, c = u.cover;
+    if (!n.covered) { c.visible = false; return; }
+    const pos = this.g.songPos();
+    if (!n.dead) {
+      const up = Math.max(0, Math.min(1, (pos - (n.t - POP_MS)) / RISE_MS));
+      if (up > 0 && n.up === 0 && shown) this.g._burst(new THREE.Vector3(n.x, COVER.h + 0.05, z + 0.3), 0xb48cff, 6, 0.6);
+      n.up = Math.max(n.up, up);                          // once up, it stays up
+      const e = 1 - (1 - n.up) ** 3;
+      u.vox.mesh.position.y = -SINK * (1 - e);
+    }
+    // stands between you and the enemy, square to your line of sight
+    const d = Math.hypot(n.x, z) || 1;
+    n.coverK = n.dead ? Math.max(0, n.coverK - dt * 2.2) : shown ? Math.min(1, n.coverK + dt * this.g.tscale / 0.3) : 0;
+    c.visible = shown && n.coverK > 0.01;
+    c.position.set(n.x * (1 - COVER.gap / d), 0, z * (1 - COVER.gap / d));
+    c.rotation.y = Math.atan2(-n.x, -z);
+    c.scale.y = Math.max(0.01, 1 - (1 - n.coverK) ** 2);
+    c.updateMatrixWorld();
+  }
+
+  /** How far along a ray it first meets a cover box (Infinity if none). */
+  _coverHit(origin, dir, skip) {
+    let best = Infinity;
+    for (const m of this.enemies) {
+      const c = m.userData.cover;
+      if (!c.visible || m === skip) continue;
+      const inv = this._m4 || (this._m4 = new THREE.Matrix4());
+      inv.copy(c.matrixWorld).invert();
+      this._ray.origin.copy(origin).applyMatrix4(inv);
+      this._ray.direction.copy(origin).add(dir).applyMatrix4(inv).sub(this._ray.origin);
+      const scale = this._ray.direction.length(); this._ray.direction.normalize();
+      const p = this._ray.intersectBox(this._box, this._v3 || (this._v3 = new THREE.Vector3()));
+      if (p) { const t = p.distanceTo(this._ray.origin) / scale; if (t < best) best = t; }
+    }
+    return best;
   }
 
   _enemyFire(n) {
@@ -274,7 +395,7 @@ export class ShootStyle {
     let best = null, bestA = this.assist(h);
     const to = this._v;
     for (const n of g.active) {
-      if (n.type !== 'enemy' || n.dead || n.risen < 0.6 || !n.mesh.visible) continue;
+      if (n.type !== 'enemy' || n.dead || n.risen < 0.6 || n.up < 0.6 || !n.mesh.visible) continue;
       for (const y of [1.55, 1.1]) {
         to.set(n.mesh.position.x, y, n.mesh.position.z).sub(gun.muzzle);
         const a = to.angleTo(gun.dir);
@@ -288,6 +409,16 @@ export class ShootStyle {
       if (a < Math.min(bestA, THREE.MathUtils.degToRad(4))) { bestA = a; bulletHit = b; best = null; }
     }
     let end;
+    if (!this.still) { // a cover box in the way stops the shot (the target's own box doesn't: you're shooting over it)
+      const tc = this._coverHit(gun.muzzle, gun.dir, best && best.n.mesh);
+      const tb = bulletHit ? bulletHit.position.distanceTo(gun.muzzle) : best ? this._v.set(best.n.mesh.position.x, best.y, best.n.mesh.position.z).distanceTo(gun.muzzle) : Infinity;
+      if (tc < tb) {
+        end = gun.muzzle.clone().addScaledVector(gun.dir, tc);
+        g._burst(end, 0xd8c8ff, 8, 0.9); g._pop('cover', end.clone().add(this._v.set(0, 0.15, 0)));
+        this._tracer(gun.muzzle, end);
+        return;
+      }
+    }
     if (bulletHit) {
       end = bulletHit.position.clone(); bulletHit.visible = false;
       g._burst(end, 0xff8899, 16, 1.2); g.addScore(10);
@@ -412,6 +543,11 @@ export class ShootStyle {
     const g = this.g, rdt = dt; dt *= g.tscale;      // STILL: bullets, shards and magazines run on your time
     const slide = g.mode === 'play' && !g.paused ? g.speed() : 0; // the floor rolls by as you walk
     this._updateThrown(dt);
+    for (const m of this.enemies) { // covers go with their enemy (and drop away with it on a failed run)
+      const c = m.userData.cover; if (!c.visible) continue;
+      if (!m.userData.used || !m.visible) c.visible = false;
+      else if (g.run.failed) { c.position.y = m.position.y; c.rotation.x = m.rotation.x; }
+    }
     this.table.update(dt, g.headY, this.still && g.mode === 'play');
     if (this.still && this.live() && g.tscale < 0.35 && g.hitSounds) { // a slow heartbeat while time is frozen
       this.beatT -= rdt; if (this.beatT <= 0) { this.beatT = 0.9; this._thump(); }
