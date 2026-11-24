@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwu67tnw';
-import { activeMods, modMultiplier } from './mods.js?v=mwu67tnw';
-import { RideStyle } from './ride.js?v=mwu67tnw';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwu67tnw';
-import { ShootStyle } from './shoot.js?v=mwu67tnw';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwu7j170';
+import { activeMods, modMultiplier } from './mods.js?v=mwu7j170';
+import { RideStyle } from './ride.js?v=mwu7j170';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwu7j170';
+import { ShootStyle } from './shoot.js?v=mwu7j170';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -14,6 +14,7 @@ const BLADE = 1.0;           // saber blade length
 const MISS_Z = 0.5;          // a cube that gets this far behind you was missed
 const MIN_SWING = 1.6;       // m/s: slower than this is a touch, not a slice
 const DIR_TOL = 0.5;         // cos(60°): how close the swing must be to the arrow
+const STILL_FOG = new THREE.Color(0xc9d1dc);
 const PALETTES = {
   normal: { fog: 0x07030f, rings: [0x00e5ff, 0xff2d6f] },
   calm: { fog: 0x040716, rings: [0x3d5afe, 0x7c4dff] },
@@ -138,11 +139,15 @@ export class Game {
     this._buildSabers();
     this._buildPools();
     this._buildHud();
-    this.styles = { ride: new RideStyle(this), shoot: new ShootStyle(this) };
+    const shoot = new ShootStyle(this);
+    this.styles = { ride: new RideStyle(this), shoot, still: shoot }; // STILL is SHOOT where time moves when you move
+    this.tscale = 1; // STILL: how fast time runs (1 = normal); everything else is 1
     this.calibrateHeight();
     this.resetRun();
   }
   get sx() { return this.styles[this.style] || null; }
+  get guns() { return this.style === 'shoot' || this.style === 'still'; }
+  _styleList() { return [...new Set(Object.values(this.styles))]; }
   hitZ() { return this.style === 'ride' ? this.styles.ride.HIT_Z : BEAT_Z; }
 
   /* ================= world ================= */
@@ -271,7 +276,7 @@ export class Game {
       }
     } else if (src.gripSpace) {
       // pistols point along the controller's aiming ray (comfortable wrist angle); sabers and orbs use the grip
-      const gp = frame.getPose(this.style === 'shoot' && src.targetRaySpace ? src.targetRaySpace : src.gripSpace, ref);
+      const gp = frame.getPose(this.guns && src.targetRaySpace ? src.targetRaySpace : src.gripSpace, ref);
       if (gp) { this._m.fromArray(gp.transform.matrix); g.kind = 'controller'; pose = true; }
     }
     if (!pose) return false;
@@ -405,7 +410,8 @@ export class Game {
     this.run = { score: 0, combo: 0, maxCombo: 0, hits: 0, misses: 0, perfects: 0, supers: 0, mines: 0, walls: 0, bullets: 0, whips: 0, total: 0, errs: [], energy: E.start, failed: false, zeroed: false };
     this.failT = 0;
     for (const n of this.active) this._release(n);
-    if (this.styles) for (const k of Object.keys(this.styles)) this.styles[k].reset();
+    if (this.styles) for (const s of this._styleList()) s.reset();
+    this.tscale = 1; if (this.player && this.player.setRate) this.player.setRate(1);
     this.active = []; this.hudDirty = true;
     this.inWall = false;
   }
@@ -413,7 +419,7 @@ export class Game {
   setPlayer(p) { this.player = p; }
   speed() {
     const m = this.mods.fast ? 1.25 : this.mods.slow ? 0.75 : 1;
-    if (this.style === 'shoot') return this.styles.shoot.walkSpeed(this.difficulty) * m;
+    if (this.guns) return this.styles.shoot.walkSpeed(this.difficulty) * m;
     return (SPEED[this.difficulty] || 10) * (this.style === 'ride' ? 0.85 : 1) * m;
   }
   leadMs() { return (SPAWN_DIST / this.speed()) * 1000; }
@@ -458,7 +464,7 @@ export class Game {
     this.headY = this.r.xr.isPresenting ? p.y : 1.6;
     this.rowY = [0, 1, 2].map((k) => Math.max(0.45, this.headY - 1.05) + k * ROW);
     this.hud.position.set(-1.75, this.headY - 0.55, -2.2);
-    if (this.style === 'shoot') this.energyBar.position.set(0, this.headY - 0.8, -2);
+    if (this.guns) this.energyBar.position.set(0, this.headY - 0.8, -2);
     else this.energyBar.position.set(0, Math.max(0.2, this.rowY[0] - 0.36), this.hitZ() - 1.9);
     for (const ring of this.rings) ring.position.y = 0;
   }
@@ -472,6 +478,10 @@ export class Game {
   update(dt) {
     const now = performance.now();
     const playing = this.mode === 'play' && this.track && this.player && this.player.playing && !this.run.failed;
+    // STILL: time runs as fast as you move. Your own songs really slow down; Spotify can't, so there only the danger slows.
+    if (this.style === 'still' && playing && !this.paused) this.tscale = this.styles.shoot.timeScale(dt);
+    else this.tscale += (1 - this.tscale) * Math.min(1, dt * 6);
+    if (this.player && this.player.setRate) this.player.setRate(this.style === 'still' && playing && !this.paused ? this.tscale : 1);
     const pos = this.songPos();
     if (!this.r.xr.isPresenting) { // screen: step back during a song so the whole grid is in view
       const z = this.mode === 'play' ? 1.5 : 0;
@@ -546,7 +556,7 @@ export class Game {
     this._updateEnergyBar(dt);
 
     this._updateWorld(dt, pos);
-    this._updateFx(dt);
+    this._updateFx(dt * this.tscale);
     if (now - this.hudLast > 500) this.hudDirty = true;
     if (this.hudDirty && now - this.hudLast > 80) this._drawHud(pos);
   }
@@ -646,7 +656,7 @@ export class Game {
       while (g.dirHist.length && now - g.dirHist[0].t > 300) g.dirHist.shift();
       g.mesh.userData.glow.material.opacity = 0.45 + Math.min(0.4, g.vel.length() * 0.04);
       this._updateTrail(g, g.tracked && g.on > 0.5);
-      for (const k of Object.keys(this.styles)) this.styles[k].handFrame(g, dt, live && this.style === k);
+      for (const s of this._styleList()) s.handFrame(g, dt, live && this.sx === s);
       const hilt = this.style === 'saber' || this.mode !== 'play'; // orbs and pistols replace the hilt in a song
       g.mesh.children[0].visible = g.mesh.children[1].visible = hilt;
     }
@@ -977,7 +987,7 @@ export class Game {
     const hot = !!sec && sec.energy >= 0.8, calm = !!sec && sec.energy < 0.4;
     this._applyPalette(hot ? 'chorus' : calm ? 'calm' : 'normal');
     const run = live ? this.speed() : 1.5;
-    this.scroll = (this.scroll || 0) + dt * run;
+    this.scroll = (this.scroll || 0) + dt * run * this.tscale;
     this.dashes.forEach((m, i) => { m.position.z = 1.2 - (((i * 1.1 - this.scroll) % 44) + 44) % 44; m.material.opacity = 0.25 + beat * 0.5; });
     this.rings.forEach((ring, i) => {
       ring.position.z = -(((i * 2.4 - this.scroll * 0.4) % 52.8) + 52.8) % 52.8 - 3;
@@ -988,6 +998,10 @@ export class Game {
     this.beatLine.material.opacity = 0.15 + beat * 0.3;
     this.trackGroup.visible = true;
     this.scene.fog.color.lerp(this.targetFog, Math.min(1, dt * 6));
+    if (this.style === 'still' && this.mode === 'play') { // frozen time: the world drains to a pale, quiet grey
+      const still = Math.max(0, Math.min(1, (1 - this.tscale) / 0.85));
+      this.scene.fog.color.lerp(STILL_FOG, still * 0.8);
+    }
     this.scene.background.copy(this.scene.fog.color);
     this.hud.visible = this.mode === 'play';
   }
@@ -1013,8 +1027,8 @@ export class Game {
     g.fillStyle = grad; g.beginPath(); g.roundRect(mx, my, Math.max(mh, mw * k), mh, 15); g.fill();
     const acc = this.run.hits + this.run.misses ? Math.round((100 * this.run.hits) / (this.run.hits + this.run.misses)) : 100;
     g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = f(700, 20);
-    const extra = this.style === 'shoot' ? `${this.run.bullets ? ` · shot ${this.run.bullets}×` : ''}${this.run.whips ? ` · whips ${this.run.whips}` : ''}` : `${this.run.mines ? ` · mines hit ${this.run.mines}` : ''}`;
-    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'RIDE', shoot: 'SHOOT' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
+    const extra = this.guns ? `${this.run.bullets ? ` · shot ${this.run.bullets}×` : ''}${this.run.whips ? ` · whips ${this.run.whips}` : ''}` : `${this.run.mines ? ` · mines hit ${this.run.mines}` : ''}`;
+    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'RIDE', shoot: 'SHOOT', still: 'STILL' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
     g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = f(700, 26);
     const name = this.track ? `${this.track.name} · ${this.track.artist}` : '';
     g.fillText(name.length > 58 ? name.slice(0, 57) + '…' : name, 32, 180);

@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwu67tnw';
-import * as sp from './spotify-api.js?v=mwu67tnw';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwu67tnw';
+import * as auth from './spotify-auth.js?v=mwu7j170';
+import * as sp from './spotify-api.js?v=mwu7j170';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwu7j170';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwu67tnw';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwu67tnw';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwu67tnw';
-import { Game } from './game.js?v=mwu67tnw';
-import { modLabels } from './mods.js?v=mwu67tnw';
-import * as leaks from './leaks.js?v=mwu67tnw';
-import * as gdrive from './gdrive.js?v=mwu67tnw';
-import { Pointers } from './ui3d.js?v=mwu67tnw';
-import { Menu } from './menu3d.js?v=mwu67tnw';
-import * as prof from './profile.js?v=mwu67tnw';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwu7j170';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwu7j170';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwu7j170';
+import { Game } from './game.js?v=mwu7j170';
+import { modLabels } from './mods.js?v=mwu7j170';
+import * as leaks from './leaks.js?v=mwu7j170';
+import * as gdrive from './gdrive.js?v=mwu7j170';
+import { Pointers } from './ui3d.js?v=mwu7j170';
+import { Menu } from './menu3d.js?v=mwu7j170';
+import * as prof from './profile.js?v=mwu7j170';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -51,7 +51,7 @@ S.leaks = new leaks.LeakPlayer(); S.leakList = leaks.list(); S.leakQ = '';
 const leakView = () => leaks.filter(S.leakList, S.leakQ);
 function bestLine(t) {
   const st = prof.loadStats().tracks[t.id], style = settings.style || 'saber';
-  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Ride', shoot: 'Shoot' }[style]}) · played ${st.plays}×` : 'Not played yet';
+  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Ride', shoot: 'Shoot', still: 'Still' }[style]}) · played ${st.plays}×` : 'Not played yet';
 }
 const inVR = () => renderer.xr.isPresenting;
 
@@ -434,7 +434,7 @@ async function startTrack(track) {
     }
     S.maxPos = 0; S.ending = false; tapper.reset();
     game.loadTrack(track, tempo0, settings.difficulty || 'normal', { style: settings.style || 'saber', mods: settings.mods || {} });
-    hint.textContent = { saber: 'Esc: pause · Move the mouse to slice · T: tap tempo', ride: 'Esc: pause · The mouse moves the hand · T: tap tempo', shoot: 'Esc: pause · Mouse aims, click fires · T: tap tempo' }[game.style];
+    hint.textContent = { saber: 'Esc: pause · Move the mouse to slice · T: tap tempo', ride: 'Esc: pause · The mouse moves the hand · T: tap tempo', shoot: 'Esc: pause · Mouse aims, click fires · T: tap tempo', still: 'Esc: pause · Time moves when the mouse moves · click fires' }[game.style];
     S.state = 'play'; game.paused = false; menu.show('hidden');
   } catch (e) {
     let msg = e.message;

@@ -2,7 +2,7 @@
 // Private File System). Nothing is uploaded anywhere: the files stay on this headset or computer.
 // Because the game has the real audio here, it finds the tempo, beat and loud/quiet parts itself.
 
-import * as gdrive from './gdrive.js?v=mwu67tnw';
+import * as gdrive from './gdrive.js?v=mwu7j170';
 
 const INDEX = 'bb.leaks', INFO = 'bb.leakInfo', DIR = 'leaks';
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|flac|ogg|opus|webm)$/i;
@@ -245,9 +245,20 @@ export class LeakPlayer {
   async init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.out = this.ctx.createGain(); this.out.gain.value = 0.9; this.out.connect(this.ctx.destination);
+    this.out = this.ctx.createGain(); this.out.gain.value = 0.9;
+    this.lp = this.ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 20000; // muffles the music when time slows
+    this.out.connect(this.lp).connect(this.ctx.destination);
+    this.rate = 1; this.ancCtx = 0; this.ancSong = 0;
   }
   activate() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
+  _songAt(t) { return this.ancSong + (t - this.ancCtx) * this.rate; }
+  /** Play faster or slower (STILL style: time moves when you move). 1 = normal. The pitch follows, like a tape. */
+  setRate(r) {
+    if (!this.ctx || Math.abs(r - this.rate) < 0.01) return;
+    const now = this.ctx.currentTime; this.ancSong = this._songAt(now); this.ancCtx = now; this.rate = r;
+    if (this.src) this.src.playbackRate.setValueAtTime(r, now);
+    this.lp.frequency.setTargetAtTime(500 + r * r * 19500, now, 0.03);
+  }
   /** Decode the song (and analyse it the first time). Sets track.bpm/offsetMs/sections/duration_ms. */
   async prepare(track, onStatus) {
     await this.init();
@@ -273,6 +284,7 @@ export class LeakPlayer {
     const when = this.ctx.currentTime + 0.15;
     src.start(when, fromMs / 1000);
     this.src = src; this.startAt = when - fromMs / 1000; this._playing = true;
+    this.rate = 1; this.ancCtx = when; this.ancSong = fromMs / 1000; this.lp.frequency.value = 20000;
   }
   _stopSrc() { if (this.src) { try { this.src.stop(); } catch { /* already */ } this.src.disconnect(); this.src = null; } }
   async pause() { this._playing = false; if (this.ctx) await this.ctx.suspend(); }
@@ -280,8 +292,8 @@ export class LeakPlayer {
   positionMs() {
     if (!this.ctx || !this.track) return 0;
     const lat = (this.ctx.outputLatency || this.ctx.baseLatency || 0) * 1000;
-    return Math.max(0, (this.ctx.currentTime - this.startAt) * 1000 - lat);
+    return Math.max(0, this._songAt(this.ctx.currentTime) * 1000 - lat * this.rate);
   }
-  stop() { this._playing = false; this._stopSrc(); this.track = null; }
+  stop() { this._playing = false; this._stopSrc(); this.track = null; this.setRate(1); }
   dispose() { this.stop(); if (this.ctx) this.ctx.close(); }
 }

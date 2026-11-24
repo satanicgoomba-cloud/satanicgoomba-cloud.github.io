@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwu67tnw';
-import { getAccessToken } from './spotify-auth.js?v=mwu67tnw';
+import * as sp from './spotify-api.js?v=mwu7j170';
+import { getAccessToken } from './spotify-auth.js?v=mwu7j170';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
@@ -253,15 +253,28 @@ export class PracticePlayer {
   async init() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    this.out = this.ctx.createGain(); this.out.gain.value = 0.55; this.out.connect(this.ctx.destination);
+    this.out = this.ctx.createGain(); this.out.gain.value = 0.55;
+    this.lp = this.ctx.createBiquadFilter(); this.lp.type = 'lowpass'; this.lp.frequency.value = 20000; // muffles the music when time slows
+    this.out.connect(this.lp).connect(this.ctx.destination);
+    this.rate = 1; this.ancCtx = 0; this.ancSong = 0;
   }
   activate() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
+  /** Song time (s) at an audio-clock time: runs at this.rate since the last rate change. */
+  _songAt(t) { return this.ancSong + (t - this.ancCtx) * this.rate; }
+  _ctxAt(s) { return this.ancCtx + (s - this.ancSong) / this.rate; }
+  /** Play faster or slower (STILL style: time moves when you move). 1 = normal. */
+  setRate(r) {
+    if (!this.ctx || Math.abs(r - this.rate) < 0.01) return;
+    const now = this.ctx.currentTime; this.ancSong = this._songAt(now); this.ancCtx = now; this.rate = r;
+    this.lp.frequency.setTargetAtTime(500 + r * r * 19500, now, 0.03);
+  }
   async play(track) {
     this.activate();
     if (this.ctx.state === 'suspended') await this.ctx.resume();
     this.track = track;
     this.step = 0;
     this.startAt = this.ctx.currentTime + 0.15;
+    this.rate = 1; this.ancCtx = this.startAt; this.ancSong = 0; this.lp.frequency.value = 20000;
     this._playing = true;
     clearInterval(this._sched);
     this._sched = setInterval(() => this._schedule(), 25);
@@ -271,8 +284,8 @@ export class PracticePlayer {
     const spb = 60 / this.track.bpm, s16 = spb / 4;
     const horizon = this.ctx.currentTime + 0.2;
     const totalSteps = 32 * 16;
-    while (this.step < totalSteps && this.startAt + this.step * s16 < horizon) {
-      const t = this.startAt + this.step * s16;
+    while (this.step < totalSteps && this._ctxAt(this.step * s16) < horizon) {
+      const t = Math.max(this.ctx.currentTime, this._ctxAt(this.step * s16));
       const bar = Math.floor(this.step / 16), st = this.step % 16, sec = section(bar);
       const beatStep = st % 4 === 0, beat = st / 4;
       const root = [55, 55, 43.65, 49][Math.floor(bar / 2) % 4];
@@ -362,8 +375,8 @@ export class PracticePlayer {
   positionMs() {
     if (!this.ctx || !this.track) return 0;
     const lat = (this.ctx.outputLatency || this.ctx.baseLatency || 0) * 1000;
-    return Math.max(0, (this.ctx.currentTime - this.startAt) * 1000 - lat);
+    return Math.max(0, this._songAt(this.ctx.currentTime) * 1000 - lat * this.rate);
   }
-  stop() { this._playing = false; clearInterval(this._sched); this.track = null; }
+  stop() { this._playing = false; clearInterval(this._sched); this.track = null; this.setRate(1); }
   dispose() { clearInterval(this._sched); if (this.ctx) this.ctx.close(); }
 }

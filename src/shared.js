@@ -8,3 +8,4 @@ export const ENERGY = {
   ride: { start: 0.5, hit: 0.012, miss: -0.12, bad: -0.08, rail: 0.04, railMiss: -0.12, wall: -0.12, wallPerSec: -0.5 },
   shoot: { start: 1, hit: 0.03, whip: 0.25, bullet: -0.4, wall: -0.15, wallPerSec: -0.5, miss: 0 },
 };
+ENERGY.still = ENERGY.shoot;

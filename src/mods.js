@@ -4,6 +4,7 @@ export const STYLES = {
   saber: { label: 'SLICE', desc: 'Sabers: slash cubes the way the arrow points, avoid mines, dodge walls' },
   ride: { label: 'RIDE', desc: 'Orbs: touch notes with the matching hand, ride the light rails, dodge walls' },
   shoot: { label: 'SHOOT', desc: 'Pistols: shoot enemies on the beat, dodge their bullets, whip close ones' },
+  still: { label: 'STILL', desc: 'Time moves when you move: crystal enemies, frozen bullets, throw empty guns' },
 };
 
 // mult: score multiplier while the modifier is on. only: styles it applies to (others ignore it).
@@ -18,8 +19,8 @@ export const MODS = {
   strict: { label: 'STRICT', mult: 1.12, desc: 'Tighter angles and aim, and mistakes drain more energy.' },
   noMines: { label: 'NO MINES', mult: 0.95, desc: 'No mines.', only: ['saber'] },
   noWalls: { label: 'NO WALLS', mult: 0.9, desc: 'No walls to dodge.' },
-  noBullets: { label: 'BULLETPROOF', mult: 0.85, desc: 'Enemies never shoot back.', only: ['shoot'] },
-  bigTargets: { label: 'BIG TARGETS', mult: 0.85, desc: 'Bigger notes, wider aim assist.', only: ['ride', 'shoot'] },
+  noBullets: { label: 'BULLETPROOF', mult: 0.85, desc: 'Enemies never shoot back.', only: ['shoot', 'still'] },
+  bigTargets: { label: 'BIG TARGETS', mult: 0.85, desc: 'Bigger notes, wider aim assist.', only: ['ride', 'shoot', 'still'] },
 };
 
 export const MOD_ORDER = Object.keys(MODS);
