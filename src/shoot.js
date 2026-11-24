@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, ENERGY } from './shared.js?v=mwu3tfce';
+import { COLORS, ENERGY } from './shared.js?v=mwu4cygh';
 
 // SHOOT style: a pistol in each hand while the track carries you forward. Enemies step out ahead;
 // shoot each one on its beat (points for timing and for aim), dodge the bullets of the ones you
@@ -8,6 +8,7 @@ import { COLORS, ENERGY } from './shared.js?v=mwu3tfce';
 
 const WALK = { easy: 2.4, normal: 2.8, hard: 3.2, extreme: 3.6, maniac: 4 }; // m/s along the track
 const STEP = { easy: -1, normal: 0, hard: 1, extreme: 2, maniac: 3 };
+const SLIDE_S = 0.45, SLIDE_M = 2.2; // entrance: slides this far in from its side over this long
 const APPEAR_MS = 2600;      // enemies step out this long before their beat
 const FIRE_MS = 650;         // an enemy still standing this long after its beat shoots at you
 const MAG = 12;
@@ -68,7 +69,7 @@ export class ShootStyle {
       const vest = new THREE.Mesh(box(0.5, 0.46, 0.31), new THREE.MeshStandardMaterial({ color: 0x5a3410, emissive: 0xff8a1f, emissiveIntensity: 0.25, transparent: true })); vest.position.y = 1.12; body.add(vest);
       const helmet = new THREE.Mesh(box(0.26, 0.13, 0.27), new THREE.MeshStandardMaterial({ color: 0x5a4a10, emissive: 0xffe14d, emissiveIntensity: 0.3, transparent: true })); helmet.position.y = 1.67; body.add(helmet);
       m.add(body); m.visible = false;
-      m.userData = { body, mat, visorMat, edge, vest, helmet };
+      m.userData = { body, mat, visorMat, edge, vest, helmet, mats: [mat, visorMat, edge, vest.material, helmet.material] };
       s.add(m); this.enemies.push(m);
     }
     // enemy bullets
@@ -100,6 +101,7 @@ export class ShootStyle {
     this._v = new THREE.Vector3(); this._v2 = new THREE.Vector3();
   }
 
+  _fade(u, k) { for (const mt of u.mats) mt.opacity = k; }
   live() { const g = this.g; return g.style === 'shoot' && g.mode === 'play' && !g.paused && !g.run.failed && g.player && g.player.playing; }
   walkSpeed(d) { return WALK[d] || 2.8; }
   reset() {
@@ -142,7 +144,7 @@ export class ShootStyle {
     const u = m.userData, col = VISOR[n.hp] || VISOR[1];
     u.visorMat.color.setHex(col); u.edge.color.setHex(col);
     u.vest.visible = n.hp >= 2; u.helmet.visible = n.hp >= 4;
-    m.rotation.set(0, 0, 0); u.body.rotation.set(0, 0, 0); u.body.position.set(0, -2, 0);
+    m.rotation.set(0, 0, 0); u.body.rotation.set(0, 0, 0); u.body.position.set(0, 0, 0); this._fade(u, 0);
     m.visible = true;
     return { ...n, mesh: m, hpLeft: n.hp, dead: false, dying: 0, fired: false, risen: 0, home: new THREE.Vector3(n.x, 0, 0) };
   }
@@ -150,19 +152,19 @@ export class ShootStyle {
   place(n, tt, pos, dt) {
     const g = this.g, m = n.mesh, u = m.userData;
     const z = n.zb - tt * g.speed();
-    m.position.set(n.x, 0, z);
-    m.rotation.y = Math.atan2(-n.x, -z);                 // face you
     const shown = tt * 1000 < APPEAR_MS;
-    n.risen = shown ? Math.min(1, n.risen + dt / 0.35) : 0;
+    n.risen = shown ? Math.min(1, n.risen + dt / SLIDE_S) : 0;
+    const ease = 1 - (1 - n.risen) ** 3;                 // slide in from its own side, fading up
+    m.position.set(n.x + Math.sign(n.x || 1) * SLIDE_M * (1 - ease), 0, z);
+    m.rotation.y = Math.atan2(-n.x, -z);                 // face you
     if (n.dead) {
       n.dying += dt;
       u.body.rotation.x = -Math.min(1.5, n.dying * 4);
       u.body.position.y = -Math.max(0, n.dying - 0.3) * 3;
-      u.mat.opacity = Math.max(0, 1 - n.dying * 1.4);
+      this._fade(u, Math.max(0, 1 - n.dying * 1.4));
       return n.dying > 0.8;
     }
-    u.body.position.y = -2 * (1 - (1 - (1 - n.risen) ** 3));
-    u.mat.opacity = 1; m.visible = true;
+    this._fade(u, ease); m.visible = true;
     if (!shown) { m.visible = false; return false; }
     // still standing after its beat: it shoots at you
     if (!n.fired && pos > n.t + FIRE_MS && n.risen >= 1 && this.live()) { n.fired = true; if (!g.mods.noBullets) this._enemyFire(n); }
