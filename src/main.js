@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwu6345x';
-import * as sp from './spotify-api.js?v=mwu6345x';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwu6345x';
+import * as auth from './spotify-auth.js?v=mwu67tnw';
+import * as sp from './spotify-api.js?v=mwu67tnw';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwu67tnw';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwu6345x';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwu6345x';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwu6345x';
-import { Game } from './game.js?v=mwu6345x';
-import { modLabels } from './mods.js?v=mwu6345x';
-import * as leaks from './leaks.js?v=mwu6345x';
-import * as gdrive from './gdrive.js?v=mwu6345x';
-import { Pointers } from './ui3d.js?v=mwu6345x';
-import { Menu } from './menu3d.js?v=mwu6345x';
-import * as prof from './profile.js?v=mwu6345x';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwu67tnw';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwu67tnw';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwu67tnw';
+import { Game } from './game.js?v=mwu67tnw';
+import { modLabels } from './mods.js?v=mwu67tnw';
+import * as leaks from './leaks.js?v=mwu67tnw';
+import * as gdrive from './gdrive.js?v=mwu67tnw';
+import { Pointers } from './ui3d.js?v=mwu67tnw';
+import { Menu } from './menu3d.js?v=mwu67tnw';
+import * as prof from './profile.js?v=mwu67tnw';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -57,7 +57,13 @@ const inVR = () => renderer.xr.isPresenting;
 
 const menu = new Menu(game.scene, pointers, {
   lists: () => ({ liked: S.liked, search: S.search.results, practice: PRACTICE_TRACKS, leaks: leakView() }),
-  leakState: () => ({ q: S.leakQ, count: S.leakList.length, supported: leaks.supported() }),
+  leakState: () => ({ q: S.leakQ, count: S.leakList.length, supported: leaks.supported(), drive: gdrive.tokenValid(), driveBusy: !!S.driveBusy, driveMsg: S.driveMsg || '' }),
+  onDrive: () => { // LEAKS tab in VR: load the Drive list here, or leave VR to sign in to Google
+    if (S.driveBusy) return;
+    if (gdrive.tokenValid()) { driveRefresh(); return; }
+    if (xrSession) xrSession.end();
+    try { gdrive.login(); } catch (e) { S.driveMsg = e.message; menu.refresh(); }
+  },
   onLeakSearch: (q) => { S.leakQ = q; },
   searchState: () => S.search,
   onSearch: (q, now) => runSearch(q, now),
@@ -660,13 +666,16 @@ function driveStatus(msg) {
     : c.folder ? `Drive folder set${n ? `, ${n} songs not downloaded yet` : ''}. Connect to list or download songs.` : 'Not connected.');
 }
 async function driveRefresh() {
+  S.driveBusy = true; S.driveMsg = ''; menu.refresh();
   try {
     driveStatus('Reading your Drive folder…');
     const files = await gdrive.listSongs((k) => driveStatus(`Reading your Drive folder… ${k} songs`));
     const r = leaks.mergeDrive(files);
     S.leakList = leaks.list(); menu.refresh(); leakStatus();
     driveStatus(`Found ${files.length} songs on Drive${r.added ? ` (${r.added} new)` : ''}. ${r.cloud} still to download: they download when played, or tap Download all.`);
-  } catch (e) { driveStatus(e.message); }
+    if (!files.length) S.driveMsg = 'Your Drive folder has no songs in it.';
+  } catch (e) { driveStatus(e.message); S.driveMsg = e.message; }
+  finally { S.driveBusy = false; menu.refresh(); }
 }
 const saveDriveFields = () => {
   gdrive.setClientId($('driveClientId').value);
@@ -690,7 +699,7 @@ function checkDriveHash() { // Google's sign-in coming back, or Drive access han
   const r = gdrive.handleRedirect(), h = gdrive.takeHandoff();
   if (r && r !== 'done') driveStatus(r);
   if (h === 'expired') driveStatus('That Drive access has expired: connect again in the Quest Browser.');
-  if (r === 'done' || h === true) driveRefresh();
+  if (r === 'done' || h === true || (gdrive.tokenValid() && !S.leakList.length)) driveRefresh(); // signed in: list the songs straight away
   else driveStatus();
 }
 addEventListener('hashchange', checkDriveHash);

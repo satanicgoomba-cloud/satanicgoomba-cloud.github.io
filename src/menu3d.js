@@ -1,5 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwu6345x';
-import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwu6345x';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwu67tnw';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwu67tnw';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -119,10 +119,13 @@ export class Menu {
       g.fillStyle = C.muted; g.font = FONT(600, 24); g.textAlign = 'left'; g.textBaseline = 'top';
       const st = this.api.searchState();
       const lk = this.api.leakState();
-      const msg = this.tab === 'leaks' ? (!lk.supported ? 'This browser can\'t store songs for the game.' : lk.count ? `No leaks match "${lk.q}".` : 'No leaks yet. Exit VR, then on the start page connect Google Drive, or tap  Import leak songs  and pick audio files on this headset. Songs stay on this device.')
+      const msg = this.tab === 'leaks' ? (!lk.supported ? 'This browser can\'t store songs for the game.' : lk.count ? `No leaks match "${lk.q}".` : lk.driveMsg ? lk.driveMsg : lk.drive ? 'Signed in to Google Drive. Load your song list:' : 'Your songs are on Google Drive. Connect once (it opens Google sign-in outside VR), and they show up here.')
         : this.tab === 'liked' ? (this.api.loggedIn() ? 'Loading your Liked Songs…' : 'Log in with Spotify on the start page to see your Liked Songs. Practice works without it.')
         : this.tab === 'search' ? (!this.api.loggedIn() ? 'Log in with Spotify to search.' : st.busy ? 'Searching…' : st.error ? st.error : st.q ? 'No songs found.' : 'Tap the box above and type a song or artist.') : '';
       wrap(g, msg, 34, top + 20, W - 68, 32);
+      if (this.tab === 'leaks' && lk.supported && !lk.count && this.api.onDrive) {
+        p.button('drive', 34, top + 120, 420, 72, lk.driveBusy ? 'READING DRIVE…' : lk.drive ? 'LOAD SONGS FROM DRIVE' : 'CONNECT GOOGLE DRIVE', { size: 22 });
+      }
     }
     for (let i = 0; i < this.ROWS; i++) {
       const idx = first + i, t = list[idx];
@@ -155,6 +158,7 @@ export class Menu {
 
   _clickSongs(id) {
     if (id === 'searchbox') { this.keysOpen = !this.keysOpen; this.show(this.screen); return; }
+    if (id === 'drive') { this.api.onDrive(); return; }
     if (id.startsWith('tab:')) { this.tab = id.slice(4); this.sel = 0; this.scroll = 0; this.keysOpen = this.tab === 'search' && !this.api.searchState().q; this.show(this.screen); }
     else if (id === 'up') this._scrollBy(-this.ROWS + 1);
     else if (id === 'down') this._scrollBy(this.ROWS - 1);
