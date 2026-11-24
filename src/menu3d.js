@@ -1,5 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwv3716n';
-import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwv3716n';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwv3ypve';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwv3ypve';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.

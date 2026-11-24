@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwv3716n';
-import * as sp from './spotify-api.js?v=mwv3716n';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwv3716n';
+import * as auth from './spotify-auth.js?v=mwv3ypve';
+import * as sp from './spotify-api.js?v=mwv3ypve';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwv3ypve';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwv3716n';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwv3716n';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwv3716n';
-import { Game } from './game.js?v=mwv3716n';
-import { modLabels } from './mods.js?v=mwv3716n';
-import * as leaks from './leaks.js?v=mwv3716n';
-import * as gdrive from './gdrive.js?v=mwv3716n';
-import { Pointers } from './ui3d.js?v=mwv3716n';
-import { Menu } from './menu3d.js?v=mwv3716n';
-import * as prof from './profile.js?v=mwv3716n';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwv3ypve';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwv3ypve';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwv3ypve';
+import { Game } from './game.js?v=mwv3ypve';
+import { modLabels } from './mods.js?v=mwv3ypve';
+import * as leaks from './leaks.js?v=mwv3ypve';
+import * as gdrive from './gdrive.js?v=mwv3ypve';
+import { Pointers } from './ui3d.js?v=mwv3ypve';
+import { Menu } from './menu3d.js?v=mwv3ypve';
+import * as prof from './profile.js?v=mwv3ypve';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -378,10 +378,10 @@ function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.fl
 /** The songs (not folder rows) of the LEAKS view, for playing: plays on through this folder. */
 function leakSongs(index) {
   const v = leakView(), songs = v.filter((t) => !t.isDir);
-  return songs.length ? Object.assign(songs, { at: Math.max(0, songs.indexOf(v[index])) }) : songs;
+  return songs.length ? Object.assign(songs, { startAt: Math.max(0, songs.indexOf(v[index])) }) : songs;
 }
 function playFromList(list, index) {
-  if (list.at !== undefined) index = list.at;
+  if (typeof list.startAt === 'number') index = list.startAt; // LEAKS: the song's place among the songs (folder rows left out)
   if (!list.length) return;
   const rest = list.slice(index + 1).concat(list.slice(0, index));
   S.queue = [list[index], ...(settings.shuffle ? shuffle(rest) : rest)];
