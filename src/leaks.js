@@ -2,7 +2,7 @@
 // Private File System). Nothing is uploaded anywhere: the files stay on this headset or computer.
 // Because the game has the real audio here, it finds the tempo, beat and loud/quiet parts itself.
 
-import * as gdrive from './gdrive.js?v=mwu4gc5n';
+import * as gdrive from './gdrive.js?v=mwu4gh3p';
 
 const INDEX = 'bb.leaks', INFO = 'bb.leakInfo', DIR = 'leaks';
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|flac|ogg|opus|webm)$/i;
