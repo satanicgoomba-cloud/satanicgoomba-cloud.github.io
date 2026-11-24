@@ -1,16 +1,17 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtz60fr';
-import * as sp from './spotify-api.js?v=mwtz60fr';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtz60fr';
+import * as auth from './spotify-auth.js?v=mwtzfuf2';
+import * as sp from './spotify-api.js?v=mwtzfuf2';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtzfuf2';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtz60fr';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtz60fr';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtz60fr';
-import { Game } from './game.js?v=mwtz60fr';
-import { modLabels } from './mods.js?v=mwtz60fr';
-import { Pointers } from './ui3d.js?v=mwtz60fr';
-import { Menu } from './menu3d.js?v=mwtz60fr';
-import * as prof from './profile.js?v=mwtz60fr';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtzfuf2';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtzfuf2';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtzfuf2';
+import { Game } from './game.js?v=mwtzfuf2';
+import { modLabels } from './mods.js?v=mwtzfuf2';
+import * as leaks from './leaks.js?v=mwtzfuf2';
+import { Pointers } from './ui3d.js?v=mwtzfuf2';
+import { Menu } from './menu3d.js?v=mwtzfuf2';
+import * as prof from './profile.js?v=mwtzfuf2';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -43,10 +44,20 @@ const S = {
 window.__bb = { game, S, menu: null };
 
 const isPractice = (t) => t && t.id.startsWith('practice');
+const isLeak = (t) => t && String(t.id).startsWith('leak:');
+const isLocal = (t) => isPractice(t) || isLeak(t);   // plays from this device, not Spotify
+S.leaks = new leaks.LeakPlayer(); S.leakList = leaks.list(); S.leakQ = '';
+const leakView = () => leaks.filter(S.leakList, S.leakQ);
+function bestLine(t) {
+  const st = prof.loadStats().tracks[t.id], style = settings.style || 'saber';
+  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Ride', shoot: 'Shoot' }[style]}) · played ${st.plays}×` : 'Not played yet';
+}
 const inVR = () => renderer.xr.isPresenting;
 
 const menu = new Menu(game.scene, pointers, {
-  lists: () => ({ liked: S.liked, search: S.search.results, practice: PRACTICE_TRACKS }),
+  lists: () => ({ liked: S.liked, search: S.search.results, practice: PRACTICE_TRACKS, leaks: leakView() }),
+  leakState: () => ({ q: S.leakQ, count: S.leakList.length, supported: leaks.supported() }),
+  onLeakSearch: (q) => { S.leakQ = q; },
   searchState: () => S.search,
   onSearch: (q, now) => runSearch(q, now),
   loggedIn: () => auth.isLoggedIn(),
@@ -63,22 +74,24 @@ const menu = new Menu(game.scene, pointers, {
   outputName: () => (S.spotify ? S.spotify.name : S.spotifyError || (auth.isLoggedIn() ? 'Spotify not started' : 'Practice only (not logged in)')),
   inVR,
   trackInfo: (t) => {
+    if (isLeak(t) && !t.bpm) { const ci = leaks.cachedInfo(t); if (ci) Object.assign(t, { bpm: ci.bpm, offsetMs: ci.offsetMs, sections: ci.sections }); }
+    if (isLeak(t) && !t.bpm) return { tempo: 'tempo found from the audio on first play', structure: 'from the audio on first play', best: bestLine(t), lookup: '' };
     const tempo = getTempo(t);
     const st = prof.loadStats().tracks[t.id];
     return {
-      tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', lookup: `(${tempo.from})`, default: bpmPending.has(t.id) ? '(looking up…)' : '(guess: tap A/X in game)' }[tempo.source]}`,
-      structure: structPending.has(t.id) ? 'looking up…' : structureSummary(t, tempo.bpm) || 'not looked up yet',
-      best: st ? `Best ${prof.bestFor(st, settings.style || 'saber').toLocaleString()} (${{ saber: 'Slice', ride: 'Ride', shoot: 'Shoot' }[settings.style || 'saber']}) · played ${st.plays}×` : 'Not played yet',
+      tempo: `${Math.round(tempo.bpm)} BPM ${{ known: isLeak(t) ? '(from the audio)' : '', tapped: '(tapped)', lookup: `(${tempo.from})`, default: bpmPending.has(t.id) ? '(looking up…)' : '(guess: tap A/X in game)' }[tempo.source]}`,
+      structure: isLeak(t) ? `from the audio (${(t.sections || []).length} parts)` : structPending.has(t.id) ? 'looking up…' : structureSummary(t, tempo.bpm) || 'not looked up yet',
+      best: bestLine(t),
       lookup: tempo.source === 'default' && !bpmPending.has(t.id) ? lookupDiag(t.id) : '',
     };
   },
-  onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : tab === 'search' ? S.search.results : S.liked, index),
+  onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : tab === 'leaks' ? leakView() : tab === 'search' ? S.search.results : S.liked, index),
   onShareCard: () => prof.shareCard(prof.summary(S.profile)).then(() => game.flash('Profile card saved', 2000)).catch(() => {}),
   onExit: () => exitToLobby(),
   onLogin: () => startLogin(),
   onPasteCode: () => pasteLoginCode(),
   onSelectTrack: (list, index) => { // look the tempo up while the player reads the fight card
-    const t = list[index]; if (!t || isPractice(t)) return;
+    const t = list[index]; if (!t || isLocal(t)) return;
     if (getTempo(t).source === 'default') { bpmPending.add(t.id); menu.refresh(); lookupBpm(t, { priority: true }).finally(() => { bpmPending.delete(t.id); menu.refresh(); }); }
     if (!structPending.has(t.id)) { structPending.add(t.id); menu.refresh(); lookupStructure(t).finally(() => { structPending.delete(t.id); menu.refresh(); }); }
     prefetchBpm(list.slice(index + 1, index + 6));
@@ -365,34 +378,35 @@ async function startTrack(track) {
   S.nextAt = 0;
   status('GETTING READY…');
   try {
-    let player = isPractice(track) ? S.practice : S.spotify;
+    let player = isPractice(track) ? S.practice : isLeak(track) ? S.leaks : S.spotify;
     if (!player) {
       if (!auth.isLoggedIn()) throw new Error('Log in to Spotify to play your Liked Songs');
       status('CONNECTING TO SPOTIFY…');
       player = await ensureSpotify();
     }
     // Playing on another device (e.g. a laptop)? If Spotify has since been opened on this Quest, move to it.
-    if (!isPractice(track) && player.device && !onQuestDevice(player.device)) {
+    if (!isLocal(track) && player.device && !onQuestDevice(player.device)) {
       try {
         const q = (await sp.getDevices()).find((x) => onQuestDevice(x) && !x.is_restricted);
         if (q) { player.dispose(); player = S.spotify = new ConnectPlayer(q); await player.init(); S.spotifyError = ''; }
       } catch { /* keep the current device */ }
     }
-    if (!isPractice(track)) {
+    if (isLeak(track)) { status('READING THE SONG…'); await player.prepare(track); } // decode + find the beat (first time only)
+    if (!isLocal(track)) {
       status('READING THE SONG…');
       const wait = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
       await Promise.all([getTempo(track).source === 'default' ? wait(lookupBpm(track, { priority: true }), 6000) : null, wait(lookupStructure(track), 8000)]);
     }
     const tempo0 = getTempo(track), an = analyze(track, tempo0.bpm);
-    game.structure = an.sections;                                  // energy: quiet / calm / verse / chorus
-    game.beats = tempo0.source === 'tapped' ? null : an.beats;     // real beat times when a source has them
+    game.structure = isLeak(track) ? track.sections : an.sections;  // energy: quiet / calm / verse / chorus
+    game.beats = tempo0.source === 'tapped' || isLeak(track) ? null : an.beats; // real beat times when a source has them
     game.shiftMs = syncFor(track);                                 // learned from your punches
 
     player.activate && player.activate();
-    for (const p of [S.practice, S.spotify]) if (p && p !== player && p.playing) p.pause().catch(() => {});
+    for (const p of [S.practice, S.spotify, S.leaks]) if (p && p !== player && p.playing) p.pause().catch(() => {});
     S.player = player; game.setPlayer(player);
     // Hit sounds default: on for practice, off over Spotify songs (Spotify forbids mixing other audio in).
-    game.hitSounds = settings.hitSounds ?? isPractice(track);
+    game.hitSounds = settings.hitSounds ?? isLocal(track);
     if (player.device && !(await deviceListed(player.device.id))) { // asleep since last time?
       status('WAKING SPOTIFY…');
       const d = await wakeSpotify(15000, true);
@@ -419,7 +433,8 @@ async function startTrack(track) {
     spLog(`PLAY failed: ${e.status ? `${e.status} ` : ''}${e.asleep ? '(no sound started) ' : ''}${e.message}`);
     if (e.status === 404 || e.asleep) { msg = S.spotifyError || 'Spotify isn\'t reachable: tap OPEN SPOTIFY, play any song, then come back'; S.wakeNeeded = true; }
     if (e.status === 403) msg = 'Spotify refused playback (Premium required)';
-    if (!isPractice(track)) S.spotifyError = msg;
+    if (isLeak(track)) msg = `Couldn't play this file: ${e.message}`;
+    else if (!isPractice(track)) S.spotifyError = msg;
     game.stop(); S.state = 'select'; menu.show('select'); game.flash(msg, 6000);
   } finally {
     S.loading = null; menu.refresh();
@@ -535,6 +550,7 @@ function tapTempo() {
   if (!res) { game.flash(`Tap… ${tapper.taps.length}/4`, 800); return; }
   const tempo = { bpm: res.bpm, offsetMs: res.offsetMs, source: 'tapped' };
   if (!game.track.bpm) saveTempo(game.track, tempo);
+  else if (isLeak(game.track)) leaks.saveTempo(game.track, tempo);
   game.structure = analyze(game.track, tempo.bpm).sections; game.beats = null; // your taps win
   game.retime(tempo);
   game.flash(`Tempo locked: ${Math.round(res.bpm)} BPM`, 1500);
@@ -543,6 +559,7 @@ function nudge(ms) {
   if (S.state !== 'play') return;
   const tempo = { ...game.tempo, offsetMs: game.tempo.offsetMs + ms, source: game.tempo.source === 'default' ? 'tapped' : game.tempo.source };
   if (!game.track.bpm) saveTempo(game.track, tempo);
+  else if (isLeak(game.track)) leaks.saveTempo(game.track, tempo);
   game.retime(tempo);
   game.flash(`Beat offset ${Math.round(tempo.offsetMs)} ms`, 1000);
 }
@@ -608,6 +625,35 @@ addEventListener('keydown', (e) => {
 });
 
 /* ---------------- lobby options ---------------- */
+// Leaks: import your own audio files into this device's private storage (never uploaded).
+async function leakStatus(msg) {
+  const u = await leaks.usage();
+  const n = leaks.count();
+  $('leakStatus').textContent = msg || (n ? `${n} songs on this device${u ? ` · ${(u.used / 1e9).toFixed(1)} of ${(u.quota / 1e9).toFixed(0)} GB used` : ''}` : 'No leaks imported yet.');
+  $('leakClear').hidden = !n;
+}
+async function importLeaks(files) {
+  if (!files || !files.length) return;
+  $('leakImport').disabled = $('leakFolder').disabled = true;
+  try {
+    const r = await leaks.importFiles(files, (i, n, name) => { $('leakStatus').textContent = `Importing ${i + 1 > n ? n : i + 1} of ${n}${name ? `: ${name}` : ''}`; });
+    S.leakList = leaks.list(); menu.refresh();
+    await leakStatus(`Imported ${r.added} new${r.skipped ? `, ${r.skipped} already there` : ''}${r.failed ? `, ${r.failed} failed (storage full?)` : ''}. ${r.total} songs on this device.`);
+  } catch (e) { leakStatus(`Import failed: ${e.message}`); }
+  finally { $('leakImport').disabled = $('leakFolder').disabled = false; $('leakFiles').value = ''; $('leakDir').value = ''; }
+}
+if (!leaks.supported()) $('leakBox').hidden = true;
+else {
+  leakStatus();
+  $('leakImport').onclick = () => $('leakFiles').click();
+  $('leakFolder').onclick = () => $('leakDir').click();
+  $('leakFiles').onchange = (e) => importLeaks(e.target.files);
+  $('leakDir').onchange = (e) => importLeaks(e.target.files);
+  $('leakClear').onclick = async () => {
+    if (!confirm(`Remove all ${leaks.count()} leak songs from this device? (Your original files aren't touched.)`)) return;
+    await leaks.removeAll(); S.leakList = []; menu.refresh(); leakStatus();
+  };
+}
 $('difficulty').value = settings.difficulty || 'normal';
 $('difficulty').onchange = (e) => { settings.difficulty = e.target.value; saveSettings(); };
 $('latency').value = settings.latency || 0;

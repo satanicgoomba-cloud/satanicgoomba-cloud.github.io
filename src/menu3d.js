@@ -1,5 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtz60fr';
-import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwtz60fr';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtzfuf2';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwtzfuf2';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -19,6 +19,7 @@ function art(url, onload) {
   return e.ok ? e.img : null;
 }
 
+const isLocalId = (id) => /^(practice|leak:)/.test(String(id));
 const mmss = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 
 export class Menu {
@@ -70,7 +71,7 @@ export class Menu {
     this.songs.visible = this.card.visible = this.corner.visible = sel;
     this.pause.visible = screen === 'pause';
     this.results.visible = screen === 'results';
-    this.keys.visible = sel && this.tab === 'search' && this.keysOpen;
+    this.keys.visible = sel && this.searchy() && this.keysOpen;
     this.pointers.enabled = screen !== 'hidden';
     this.refresh();
   }
@@ -78,7 +79,10 @@ export class Menu {
   refresh() { for (const p of this.all) if (p.visible) p.redraw(); }
 
   list() { return this.api.lists()[this.tab] || []; }
-  get ROWS() { return this.tab === 'search' ? 7 : 8; }
+  get ROWS() { return this.searchy() ? 7 : 8; }
+  searchy() { return this.tab === 'search' || this.tab === 'leaks'; }
+  /** The search box's state: Spotify search, or the Leaks filter (its own query). */
+  qState() { return this.tab === 'leaks' ? { ...this.api.leakState(), busy: false, error: '' } : this.api.searchState(); }
   set ROWS(v) { /* fixed per tab */ }
   selected() { return this.list()[this.sel]; }
 
@@ -92,28 +96,31 @@ export class Menu {
   _drawSongs(g, p) {
     const lists = this.api.lists();
     const W = p.W;
-    p.button('tab:liked', 20, 22, 196, 60, `LIKED${lists.liked.length ? ` (${lists.liked.length})` : ''}`, { style: 'tab', selected: this.tab === 'liked', size: 20 });
-    p.button('tab:search', 224, 22, 152, 60, 'SEARCH', { style: 'tab', selected: this.tab === 'search', size: 20 });
-    p.button('tab:practice', 384, 22, 150, 60, 'PRACTICE', { style: 'tab', selected: this.tab === 'practice', size: 20 });
+    p.button('tab:liked', 16, 22, 140, 60, `LIKED${lists.liked.length ? ` ${lists.liked.length}` : ''}`, { style: 'tab', selected: this.tab === 'liked', size: 18 });
+    p.button('tab:search', 162, 22, 120, 60, 'SEARCH', { style: 'tab', selected: this.tab === 'search', size: 18 });
+    p.button('tab:leaks', 288, 22, 116, 60, 'LEAKS', { style: 'tab', selected: this.tab === 'leaks', size: 18 });
+    p.button('tab:practice', 410, 22, 130, 60, 'PRACTICE', { style: 'tab', selected: this.tab === 'practice', size: 18 });
     p.button('up', W - 82, 22, 58, 60, '▲', { size: 26 });
     const list = this.list();
     const rowH = 78;
     let top = 100;
-    if (this.tab === 'search') { // search box: tap it to open the keyboard
-      const st = this.api.searchState();
+    if (this.searchy()) { // search box: tap it to open the keyboard
+      const st = this.qState();
       p.button('searchbox', 16, 96, W - 32, 64, '', { style: 'row' });
       rr(g, 16, 96, W - 32, 64, 16); g.fillStyle = this.keysOpen ? 'rgba(0,229,255,0.16)' : 'rgba(255,255,255,0.08)'; g.fill();
       g.strokeStyle = this.keysOpen ? C.cyan : C.line; g.lineWidth = 3; g.stroke();
       g.textAlign = 'left'; g.textBaseline = 'middle'; g.font = FONT(600, 24);
       g.fillStyle = st.q ? C.text : C.muted;
-      g.fillText(fitText(g, st.q ? st.q + (this.keysOpen ? '▏' : '') : 'Search Spotify (song or artist)…', W - 80), 34, 129);
+      g.fillText(fitText(g, st.q ? st.q + (this.keysOpen ? '▏' : '') : this.tab === 'leaks' ? `Search your leaks (${st.count} songs)…` : 'Search Spotify (song or artist)…', W - 80), 34, 129);
       top = 172;
     }
     const first = Math.floor(this.scroll);
     if (!list.length) {
       g.fillStyle = C.muted; g.font = FONT(600, 24); g.textAlign = 'left'; g.textBaseline = 'top';
       const st = this.api.searchState();
-      const msg = this.tab === 'liked' ? (this.api.loggedIn() ? 'Loading your Liked Songs…' : 'Log in with Spotify on the start page to see your Liked Songs. Practice works without it.')
+      const lk = this.api.leakState();
+      const msg = this.tab === 'leaks' ? (!lk.supported ? 'This browser can\'t store songs for the game.' : lk.count ? `No leaks match "${lk.q}".` : 'No leaks yet. Exit VR, then on the start page tap  Import leak songs  and pick your audio files (copy them to this headset first). They stay on this device.')
+        : this.tab === 'liked' ? (this.api.loggedIn() ? 'Loading your Liked Songs…' : 'Log in with Spotify on the start page to see your Liked Songs. Practice works without it.')
         : this.tab === 'search' ? (!this.api.loggedIn() ? 'Log in with Spotify to search.' : st.busy ? 'Searching…' : st.error ? st.error : st.q ? 'No songs found.' : 'Tap the box above and type a song or artist.') : '';
       wrap(g, msg, 34, top + 20, W - 68, 32);
     }
@@ -127,14 +134,17 @@ export class Menu {
       if (idx === this.sel) { g.strokeStyle = C.cyan; g.lineWidth = 3; g.stroke(); }
       const im = art(t.art, () => p.redraw());
       if (im) g.drawImage(im, 26, y + 6, 60, 60);
-      else { rr(g, 26, y + 6, 60, 60, 8); g.fillStyle = t.id.startsWith('practice') ? C.pink : 'rgba(255,255,255,0.1)'; g.fill(); }
+      else {
+        rr(g, 26, y + 6, 60, 60, 8); g.fillStyle = t.id.startsWith('practice') ? C.pink : t.leak ? '#7c3aed' : 'rgba(255,255,255,0.1)'; g.fill();
+        if (t.leak) { g.fillStyle = '#fff'; g.font = FONT(900, 30); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('♪', 56, y + 37); }
+      }
       g.textAlign = 'left'; g.textBaseline = 'top';
       g.fillStyle = C.text; g.font = FONT(700, 24); g.fillText(fitText(g, t.name, W - 260), 100, y + 8);
       g.fillStyle = C.muted; g.font = FONT(500, 19); g.fillText(fitText(g, t.artist, W - 260), 100, y + 40);
       const best = this.api.best(t.id);
       g.textAlign = 'right';
       g.fillStyle = best ? C.gold : C.muted; g.font = FONT(700, 20);
-      g.fillText(best ? best.toLocaleString() : mmss(t.duration_ms), W - 30, y + 26);
+      g.fillText(best ? best.toLocaleString() : t.duration_ms ? mmss(t.duration_ms) : '', W - 30, y + 26);
     }
     p.button('down', W - 82, p.H - 76, 58, 60, '▼', { size: 26 });
     if (list.length > this.ROWS) {
@@ -149,8 +159,8 @@ export class Menu {
     else if (id === 'up') this._scrollBy(-this.ROWS + 1);
     else if (id === 'down') this._scrollBy(this.ROWS - 1);
     else if (id.startsWith('row:')) this.sel = +id.slice(4);
-    if (id.startsWith('row:') && this.tab === 'search' && this.keysOpen) { this.keysOpen = false; this.show(this.screen); }
-    if (this.api.onSelectTrack && this.tab !== 'practice') this.api.onSelectTrack(this.list(), this.sel);
+    if (id.startsWith('row:') && this.searchy() && this.keysOpen) { this.keysOpen = false; this.show(this.screen); }
+    if (this.api.onSelectTrack && this.tab !== 'practice' && this.tab !== 'leaks') this.api.onSelectTrack(this.list(), this.sel);
     this.songs.redraw(); this.card.redraw();
   }
 
@@ -168,19 +178,19 @@ export class Menu {
     p.button('k:done', W - 180, y, 150, kh, 'DONE', { style: 'primary', size: 22 });
   }
   _clickKeys(id) {
-    const st = this.api.searchState();
+    const leak = this.tab === 'leaks', st = this.qState();
     let q = st.q || '';
     if (id === 'k:back') q = q.slice(0, -1);
     else if (id === 'k:clear') q = '';
-    else if (id === 'k:done') { this.keysOpen = false; this.show(this.screen); this.api.onSearch(q, true); return; }
+    else if (id === 'k:done') { this.keysOpen = false; this.show(this.screen); if (!leak) this.api.onSearch(q, true); return; }
     else if (id.startsWith('k:')) q = (q + id.slice(2).toLowerCase()).slice(0, 60);
     this.sel = 0; this.scroll = 0;
-    this.api.onSearch(q, false);
+    if (leak) { this.api.onLeakSearch(q); this.card.redraw(); } else this.api.onSearch(q, false);
     this.songs.redraw();
   }
   /** Typing on a real keyboard (screen mode). Returns true if the key was used. */
   typeKey(key) {
-    if (this.screen !== 'select' || this.tab !== 'search') return false;
+    if (this.screen !== 'select' || !this.searchy()) return false;
     if (key === 'Enter') { this._clickKeys('k:done'); return true; }
     if (key === 'Backspace') { this._clickKeys('k:back'); return true; }
     if (key === 'Escape' && this.keysOpen) { this.keysOpen = false; this.show(this.screen); return true; }
@@ -210,7 +220,7 @@ export class Menu {
       g.font = FONT(500, 19); g.fillStyle = C.text;
       g.fillText(`${mmss(t.duration_ms)} · ${info.tempo}`, W / 2, 336);
       g.fillStyle = /^from|built/.test(info.structure) ? C.gold : C.muted; g.fillText(fitText(g, `Sections: ${info.structure}`, W - 50), W / 2, 362);
-      const err = !String(t.id).startsWith('practice') && (this.api.audioError() || (info.lookup ? `Tempo lookup: ${info.lookup}` : ''));
+      const err = !isLocalId(t.id) && (this.api.audioError() || (info.lookup ? `Tempo lookup: ${info.lookup}` : ''));
       if (!err) { g.fillStyle = C.muted; g.fillText(info.best, W / 2, 388); }
       else { // audio problem: say what to do, on two lines where the best score would be
         g.fillStyle = '#ff8a8a'; g.font = FONT(600, 17);
@@ -233,7 +243,7 @@ export class Menu {
     p.button('shuffle', 38 + tw, 592, tw, 56, `SHUFFLE ${s.shuffle ? 'ON' : 'OFF'}`, { selected: !!s.shuffle, size: 18 });
     p.button('mods', 46 + tw * 2, 592, tw, 56, nMods ? `MODIFIERS (${nMods})` : 'MODIFIERS', { selected: nMods > 0, size: 18 });
     const busy = this.api.loading && this.api.loading();
-    const wake = !busy && t && !String(t.id).startsWith('practice') && this.api.wakeNeeded && this.api.wakeNeeded();
+    const wake = !busy && t && !isLocalId(t.id) && this.api.wakeNeeded && this.api.wakeNeeded();
     if (wake) p.button('wake', 30, 664, W - 60, 116, 'OPEN SPOTIFY', { style: 'primary', size: 40, color: '#1ed760' });
     else p.button('fight', 30, 664, W - 60, 116, busy || (t ? 'PLAY!' : 'PICK A SONG'), { style: 'primary', size: busy ? 30 : 44, color: busy ? '#8a5cff' : undefined });
   }

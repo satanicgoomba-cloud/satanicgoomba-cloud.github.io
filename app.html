@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Slicewave</title>
-  <link rel="stylesheet" href="style.css?v=mwtz60fr" />
+  <link rel="stylesheet" href="style.css?v=mwtzfuf2" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <meta name="theme-color" content="#100722" />
   <script>window.BB_CONFIG = {};</script>
-  <script src="config.js?v=mwtz60fr" onerror="void 0"></script>
+  <script src="config.js?v=mwtzfuf2" onerror="void 0"></script>
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }
   </script>
@@ -87,6 +87,18 @@
         <label class="check"><input id="hitSounds" type="checkbox" /> Hit sounds</label>
       </section>
 
+      <section id="leakBox" class="sendbox">
+        <p class="small"><b>Leaks: your own songs.</b> Copies audio files into this device's private game storage for the <b>LEAKS</b> tab (its own search, tempo found from the audio). Nothing is uploaded anywhere. On the Quest, copy the files onto the headset first, then pick them here (select all).</p>
+        <div class="actions">
+          <button id="leakImport" class="alt" type="button">Import leak songs</button>
+          <button id="leakFolder" class="alt" type="button">Import a folder</button>
+          <button id="leakClear" class="link" type="button">Remove all leaks</button>
+        </div>
+        <input id="leakFiles" type="file" multiple accept="audio/*,.mp3,.m4a,.wav,.flac,.aac,.ogg" hidden />
+        <input id="leakDir" type="file" webkitdirectory multiple hidden />
+        <p id="leakStatus" class="small muted"></p>
+      </section>
+
       <section class="actions">
         <button id="enterVR" class="big" hidden>Enter VR</button>
         <button id="playScreen" class="big alt">Play on screen</button>
@@ -119,6 +131,6 @@
   </div>
 
   <div id="hudHint" class="hint" hidden>Esc: pause · Move the mouse to slice · T: tap tempo</div>
-  <script type="module" src="src/main.js?v=mwtz60fr"></script>
+  <script type="module" src="src/main.js?v=mwtzfuf2"></script>
 </body>
 </html>
