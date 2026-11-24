@@ -2,6 +2,8 @@
 // Private File System). Nothing is uploaded anywhere: the files stay on this headset or computer.
 // Because the game has the real audio here, it finds the tempo, beat and loud/quiet parts itself.
 
+import * as gdrive from './gdrive.js?v=mwtzqqms';
+
 const INDEX = 'bb.leaks', INFO = 'bb.leakInfo', DIR = 'leaks';
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|flac|ogg|opus|webm)$/i;
 
@@ -17,10 +19,60 @@ function parseName(file) {
   const m = /^(.+?)\s+-\s+(.+)$/.exec(base);
   return m ? { artist: m[1].trim(), name: m[2].trim() } : { artist: 'Leak', name: base };
 }
-const toTrack = (e) => ({ id: `leak:${e.file}`, file: e.file, name: e.name, artist: e.artist, duration_ms: e.duration_ms || 0, art: null, leak: true });
+const toTrack = (e) => ({ id: `leak:${e.file}`, file: e.file, name: e.name, artist: e.artist, duration_ms: e.duration_ms || 0, art: null, leak: true, cloud: e.local === false });
 
 export function list() { return readJson(INDEX, []).map(toTrack).sort((a, b) => a.name.localeCompare(b.name)); }
 export function count() { return readJson(INDEX, []).length; }
+export function cloudCount() { return readJson(INDEX, []).filter((e) => e.local === false).length; }
+
+/** Add the songs in your Drive folder to the list (not downloaded yet: they download on first play). */
+export function mergeDrive(files) {
+  const idx = readJson(INDEX, []);
+  const byDrive = new Map(idx.filter((e) => e.drive).map((e) => [e.drive, e]));
+  const names = new Set(idx.map((e) => e.file));
+  let added = 0;
+  for (const f of files) {
+    if (byDrive.has(f.id)) continue;
+    const local = idx.find((e) => !e.drive && e.file === f.name && e.size === f.size);
+    if (local) { local.drive = f.id; continue; }          // already imported by hand: same song
+    let file = f.name;
+    for (let k = 2; names.has(file); k++) file = f.name.replace(/(\.[^.]+)?$/, ` (${k})$1`);
+    names.add(file);
+    idx.push({ file, size: f.size, ...parseName(f.name), duration_ms: 0, drive: f.id, local: false });
+    added++;
+  }
+  // songs gone from Drive and never downloaded: drop them
+  const live = new Set(files.map((f) => f.id));
+  const kept = idx.filter((e) => !(e.local === false && e.drive && !live.has(e.drive)));
+  writeJson(INDEX, kept);
+  return { added, removed: idx.length - kept.length, total: kept.length, cloud: kept.filter((e) => e.local === false).length };
+}
+
+/** Download one Drive song into private storage. */
+async function download(e, onBytes = () => {}) {
+  const res = await gdrive.fetchFile(e.drive);
+  const fh = await (await dir()).getFileHandle(e.file, { create: true });
+  const w = await fh.createWritable();
+  const reader = res.body.getReader();
+  let got = 0;
+  try {
+    for (;;) { const { done, value } = await reader.read(); if (done) break; await w.write(value); got += value.length; onBytes(got); }
+    await w.close();
+  } catch (err) { try { await w.abort(); } catch { /* ignore */ } throw err; }
+  const idx = readJson(INDEX, []), x = idx.find((y) => y.file === e.file);
+  if (x) { x.local = true; x.size = got; writeJson(INDEX, idx); }
+}
+/** Download every Drive song that isn't on this device yet. */
+export async function downloadAll(onProgress = () => {}) {
+  const todo = readJson(INDEX, []).filter((e) => e.local === false);
+  let done = 0, failed = 0;
+  for (const e of todo) {
+    onProgress(done, todo.length, e.name);
+    try { await download(e); done++; } catch (err) { if (err.expired) throw err; failed++; if (err.name === 'QuotaExceededError') break; }
+  }
+  onProgress(done, todo.length, '');
+  return { done, failed, left: todo.length - done };
+}
 
 /** Words in any order, matched against title, artist and file name. */
 export function filter(tracks, q) {
@@ -78,7 +130,16 @@ export async function usage() {
   try { const e = await navigator.storage.estimate(); return { used: e.usage || 0, quota: e.quota || 0 }; } catch { return null; }
 }
 
-async function readFile(track) { const fh = await (await dir()).getFileHandle(track.file); return fh.getFile(); }
+async function readFile(track, onStatus = () => {}) {
+  const e = readJson(INDEX, []).find((x) => x.file === track.file);
+  if (e && e.local === false) { // on Drive only: fetch it now
+    if (!gdrive.tokenValid()) throw new Error('This song is still on Google Drive and the Drive login has expired: exit VR and tap Connect Google Drive on the start page (or Download all first)');
+    onStatus('DOWNLOADING FROM DRIVE…');
+    await download(e, (b) => onStatus(`DOWNLOADING ${(b / 1e6).toFixed(1)} MB…`));
+    track.cloud = false;
+  }
+  const fh = await (await dir()).getFileHandle(track.file); return fh.getFile();
+}
 function setDuration(track, ms) {
   track.duration_ms = ms;
   const idx = readJson(INDEX, []), e = idx.find((x) => x.file === track.file);
@@ -188,11 +249,11 @@ export class LeakPlayer {
   }
   activate() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
   /** Decode the song (and analyse it the first time). Sets track.bpm/offsetMs/sections/duration_ms. */
-  async prepare(track) {
+  async prepare(track, onStatus) {
     await this.init();
     if (this.bufId !== track.id) {
       this.buf = null; this.bufId = null;
-      const file = await readFile(track);
+      const file = await readFile(track, onStatus);
       this.buf = await this.ctx.decodeAudioData(await file.arrayBuffer());
       this.bufId = track.id;
     }

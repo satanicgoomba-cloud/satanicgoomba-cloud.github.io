@@ -4,12 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Slicewave</title>
-  <link rel="stylesheet" href="style.css?v=mwtzfuf2" />
+  <link rel="stylesheet" href="style.css?v=mwtzqqms" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icons/icon-192.png" />
   <meta name="theme-color" content="#100722" />
   <script>window.BB_CONFIG = {};</script>
-  <script src="config.js?v=mwtzfuf2" onerror="void 0"></script>
+  <script src="config.js?v=mwtzqqms" onerror="void 0"></script>
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js" } }
   </script>
@@ -97,6 +97,38 @@
         <input id="leakFiles" type="file" multiple accept="audio/*,.mp3,.m4a,.wav,.flac,.aac,.ogg" hidden />
         <input id="leakDir" type="file" webkitdirectory multiple hidden />
         <p id="leakStatus" class="small muted"></p>
+        <div id="driveBox">
+          <p class="small"><b>Or from Google Drive:</b> the LEAKS tab lists the songs in your Drive folder, and each one downloads to this device the first time you play it (or tap <b>Download all</b> before going into VR). Read-only, through your own Google login. Keep the folder private: no link sharing needed.</p>
+          <div class="grid2">
+            <label class="field">Google Client ID <input id="driveClientId" placeholder="….apps.googleusercontent.com" autocomplete="off" /></label>
+            <label class="field">Drive folder link <input id="driveFolder" placeholder="https://drive.google.com/drive/folders/…" autocomplete="off" /></label>
+          </div>
+          <div class="actions">
+            <button id="driveConnect" class="alt" type="button">Connect Google Drive</button>
+            <button id="driveRefresh" class="alt" type="button">Refresh song list</button>
+            <button id="driveDownload" class="alt" type="button">Download all</button>
+            <button id="driveForget" class="link" type="button">Disconnect Drive</button>
+          </div>
+          <div id="driveSend" class="sendbox" hidden>
+            <p class="small"><b>Quest app:</b> hand this Drive access to the installed app (it lasts about an hour; songs you download stay):</p>
+            <div class="actions">
+              <a class="big alt" id="driveSendImmersive" href="#">Open Slicewave with Drive access</a>
+              <a class="big alt" id="driveSendWindow" href="#">Open Slicewave Setup with Drive access</a>
+            </div>
+          </div>
+          <p id="driveStatus" class="small muted"></p>
+          <details class="small help">
+            <summary>One-time Google setup (about 10 minutes)</summary>
+            <ol>
+              <li>Open <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a>, make a new project (any name, e.g. Slicewave).</li>
+              <li><b>APIs &amp; Services → Library</b>: enable <b>Google Drive API</b>.</li>
+              <li><b>Google Auth Platform</b> (OAuth consent screen): Get started, app name Slicewave, your email, audience <b>External</b>. Under <b>Audience → Test users</b>, add your own Google account.</li>
+              <li><b>Clients → Create client → Web application</b>. Authorized JavaScript origins: <code>https://satanicgoomba-cloud.github.io</code> (and <code>http://127.0.0.1:8443</code> for the Mac). Authorized redirect URIs: the same two, each ending in <code>/</code>.</li>
+              <li>Copy the <b>Client ID</b> into the box above (it isn't a secret; no client secret is needed).</li>
+            </ol>
+            <p>Google will say the app isn't verified: that's expected for your own personal app. Tap <b>Continue</b>.</p>
+          </details>
+        </div>
       </section>
 
       <section class="actions">
@@ -131,6 +163,6 @@
   </div>
 
   <div id="hudHint" class="hint" hidden>Esc: pause · Move the mouse to slice · T: tap tempo</div>
-  <script type="module" src="src/main.js?v=mwtzfuf2"></script>
+  <script type="module" src="src/main.js?v=mwtzqqms"></script>
 </body>
 </html>

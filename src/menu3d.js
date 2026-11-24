@@ -1,5 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtzfuf2';
-import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwtzfuf2';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtzqqms';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwtzqqms';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -119,7 +119,7 @@ export class Menu {
       g.fillStyle = C.muted; g.font = FONT(600, 24); g.textAlign = 'left'; g.textBaseline = 'top';
       const st = this.api.searchState();
       const lk = this.api.leakState();
-      const msg = this.tab === 'leaks' ? (!lk.supported ? 'This browser can\'t store songs for the game.' : lk.count ? `No leaks match "${lk.q}".` : 'No leaks yet. Exit VR, then on the start page tap  Import leak songs  and pick your audio files (copy them to this headset first). They stay on this device.')
+      const msg = this.tab === 'leaks' ? (!lk.supported ? 'This browser can\'t store songs for the game.' : lk.count ? `No leaks match "${lk.q}".` : 'No leaks yet. Exit VR, then on the start page connect Google Drive, or tap  Import leak songs  and pick audio files on this headset. Songs stay on this device.')
         : this.tab === 'liked' ? (this.api.loggedIn() ? 'Loading your Liked Songs…' : 'Log in with Spotify on the start page to see your Liked Songs. Practice works without it.')
         : this.tab === 'search' ? (!this.api.loggedIn() ? 'Log in with Spotify to search.' : st.busy ? 'Searching…' : st.error ? st.error : st.q ? 'No songs found.' : 'Tap the box above and type a song or artist.') : '';
       wrap(g, msg, 34, top + 20, W - 68, 32);
@@ -144,7 +144,7 @@ export class Menu {
       const best = this.api.best(t.id);
       g.textAlign = 'right';
       g.fillStyle = best ? C.gold : C.muted; g.font = FONT(700, 20);
-      g.fillText(best ? best.toLocaleString() : t.duration_ms ? mmss(t.duration_ms) : '', W - 30, y + 26);
+      g.fillText(best ? best.toLocaleString() : t.cloud ? '☁' : t.duration_ms ? mmss(t.duration_ms) : '', W - 30, y + 26);
     }
     p.button('down', W - 82, p.H - 76, 58, 60, '▼', { size: 26 });
     if (list.length > this.ROWS) {

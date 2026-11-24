@@ -1,17 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtzfuf2';
-import * as sp from './spotify-api.js?v=mwtzfuf2';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtzfuf2';
+import * as auth from './spotify-auth.js?v=mwtzqqms';
+import * as sp from './spotify-api.js?v=mwtzqqms';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtzqqms';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtzfuf2';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtzfuf2';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtzfuf2';
-import { Game } from './game.js?v=mwtzfuf2';
-import { modLabels } from './mods.js?v=mwtzfuf2';
-import * as leaks from './leaks.js?v=mwtzfuf2';
-import { Pointers } from './ui3d.js?v=mwtzfuf2';
-import { Menu } from './menu3d.js?v=mwtzfuf2';
-import * as prof from './profile.js?v=mwtzfuf2';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtzqqms';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtzqqms';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtzqqms';
+import { Game } from './game.js?v=mwtzqqms';
+import { modLabels } from './mods.js?v=mwtzqqms';
+import * as leaks from './leaks.js?v=mwtzqqms';
+import * as gdrive from './gdrive.js?v=mwtzqqms';
+import { Pointers } from './ui3d.js?v=mwtzqqms';
+import { Menu } from './menu3d.js?v=mwtzqqms';
+import * as prof from './profile.js?v=mwtzqqms';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -75,6 +76,7 @@ const menu = new Menu(game.scene, pointers, {
   inVR,
   trackInfo: (t) => {
     if (isLeak(t) && !t.bpm) { const ci = leaks.cachedInfo(t); if (ci) Object.assign(t, { bpm: ci.bpm, offsetMs: ci.offsetMs, sections: ci.sections }); }
+    if (isLeak(t) && !t.bpm && t.cloud) return { tempo: 'on Google Drive: downloads when you play it', structure: 'from the audio on first play', best: bestLine(t), lookup: '' };
     if (isLeak(t) && !t.bpm) return { tempo: 'tempo found from the audio on first play', structure: 'from the audio on first play', best: bestLine(t), lookup: '' };
     const tempo = getTempo(t);
     const st = prof.loadStats().tracks[t.id];
@@ -391,7 +393,7 @@ async function startTrack(track) {
         if (q) { player.dispose(); player = S.spotify = new ConnectPlayer(q); await player.init(); S.spotifyError = ''; }
       } catch { /* keep the current device */ }
     }
-    if (isLeak(track)) { status('READING THE SONG…'); await player.prepare(track); } // decode + find the beat (first time only)
+    if (isLeak(track)) { status('READING THE SONG…'); await player.prepare(track, status); status('READING THE SONG…'); } // decode + find the beat (first time only)
     if (!isLocal(track)) {
       status('READING THE SONG…');
       const wait = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
@@ -642,6 +644,57 @@ async function importLeaks(files) {
   } catch (e) { leakStatus(`Import failed: ${e.message}`); }
   finally { $('leakImport').disabled = $('leakFolder').disabled = false; $('leakFiles').value = ''; $('leakDir').value = ''; }
 }
+// Google Drive as a leak source
+function driveStatus(msg) {
+  const c = gdrive.config();
+  $('driveClientId').value = $('driveClientId').value || c.clientId || '';
+  if (c.folder && !$('driveFolder').value) $('driveFolder').value = `https://drive.google.com/drive/folders/${c.folder}`;
+  const live = gdrive.tokenValid(), n = leaks.cloudCount();
+  $('driveRefresh').hidden = !live || !c.folder;
+  $('driveDownload').hidden = !live || !n;
+  $('driveForget').hidden = !c.token && !c.folder;
+  const quest = /OculusBrowser|Quest/i.test(navigator.userAgent);
+  $('driveSend').hidden = !live || auth.inApp() || !quest;
+  if (live) { $('driveSendImmersive').href = gdrive.handoffLink(auth.IMMERSIVE_PKG); $('driveSendWindow').href = gdrive.handoffLink(auth.APP_PKGS.w); }
+  $('driveStatus').textContent = msg || (live ? `Connected${c.folderName ? ` to "${c.folderName}"` : ''} (${gdrive.minutesLeft()} min left on this login). ${n ? `${n} songs still on Drive.` : 'All songs downloaded.'}`
+    : c.folder ? `Drive folder set${n ? `, ${n} songs not downloaded yet` : ''}. Connect to list or download songs.` : 'Not connected.');
+}
+async function driveRefresh() {
+  try {
+    driveStatus('Reading your Drive folder…');
+    const files = await gdrive.listSongs((k) => driveStatus(`Reading your Drive folder… ${k} songs`));
+    const r = leaks.mergeDrive(files);
+    S.leakList = leaks.list(); menu.refresh(); leakStatus();
+    driveStatus(`Found ${files.length} songs on Drive${r.added ? ` (${r.added} new)` : ''}. ${r.cloud} still to download: they download when played, or tap Download all.`);
+  } catch (e) { driveStatus(e.message); }
+}
+const saveDriveFields = () => {
+  gdrive.setClientId($('driveClientId').value);
+  if ($('driveFolder').value.trim()) gdrive.setFolder($('driveFolder').value);
+};
+$('driveConnect').onclick = () => { try { saveDriveFields(); gdrive.login(); } catch (e) { driveStatus(e.message); } };
+$('driveRefresh').onclick = () => { try { saveDriveFields(); driveRefresh(); } catch (e) { driveStatus(e.message); } };
+$('driveFolder').onchange = () => { try { gdrive.setFolder($('driveFolder').value); if (gdrive.tokenValid()) driveRefresh(); else driveStatus(); } catch (e) { driveStatus(e.message); } };
+$('driveClientId').onchange = () => gdrive.setClientId($('driveClientId').value);
+$('driveDownload').onclick = async () => {
+  $('driveDownload').disabled = true;
+  try {
+    const r = await leaks.downloadAll((i, n, name) => driveStatus(`Downloading ${Math.min(i + 1, n)} of ${n}${name ? `: ${name}` : ''}`));
+    S.leakList = leaks.list(); menu.refresh(); leakStatus();
+    driveStatus(`Downloaded ${r.done}${r.failed ? `, ${r.failed} failed` : ''}${r.left ? `, ${r.left} left` : ''}.`);
+  } catch (e) { driveStatus(e.message); S.leakList = leaks.list(); menu.refresh(); }
+  finally { $('driveDownload').disabled = false; }
+};
+$('driveForget').onclick = () => { gdrive.forget(); $('driveFolder').value = ''; driveStatus(); };
+function checkDriveHash() { // Google's sign-in coming back, or Drive access handed over from the Quest Browser
+  const r = gdrive.handleRedirect(), h = gdrive.takeHandoff();
+  if (r && r !== 'done') driveStatus(r);
+  if (h === 'expired') driveStatus('That Drive access has expired: connect again in the Quest Browser.');
+  if (r === 'done' || h === true) driveRefresh();
+  else driveStatus();
+}
+addEventListener('hashchange', checkDriveHash);
+checkDriveHash();
 if (!leaks.supported()) $('leakBox').hidden = true;
 else {
   leakStatus();
