@@ -107,6 +107,7 @@ export async function listSongs(onProgress = () => {}) {
       });
       for (const f of r.files || []) {
         if (f.mimeType === FOLDER) queue.push(f.id);
+        else if (f.name.startsWith('._')) continue; // macOS metadata twins (exFAT drives), not songs
         else if (AUDIO.test(f.name) || /^audio\//.test(f.mimeType || '')) out.push({ id: f.id, name: f.name, size: +f.size || 0 });
       }
       pageToken = r.nextPageToken || '';

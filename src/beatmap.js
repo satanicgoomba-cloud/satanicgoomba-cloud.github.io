@@ -1,4 +1,4 @@
-import { cachedInfo } from './bpm.js?v=mwtzqqms';
+import { cachedInfo } from './bpm.js?v=mwu0kew2';
 // Beat maps without audio analysis.
 // Spotify's /audio-features and /audio-analysis are closed to new apps (Nov 2024), and the
 // page can't read Spotify's audio, so a map is: tempo (BPM + phase) + song sections -> seeded
