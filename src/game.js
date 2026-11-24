@@ -1,9 +1,10 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwu7v3hh';
-import { activeMods, modMultiplier } from './mods.js?v=mwu7v3hh';
-import { RideStyle } from './ride.js?v=mwu7v3hh';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwu7v3hh';
-import { ShootStyle } from './shoot.js?v=mwu7v3hh';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwu8geng';
+import { activeMods, modMultiplier } from './mods.js?v=mwu8geng';
+import { RideStyle } from './ride.js?v=mwu8geng';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwu8geng';
+import { ShootStyle } from './shoot.js?v=mwu8geng';
+import { SaberFx } from './saberfx.js?v=mwu8geng';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -12,6 +13,7 @@ const ROW = 0.42;            // row spacing
 const CUBE = 0.38;           // cube size
 const BLADE = 1.0;           // saber blade length
 const MISS_Z = 0.5;          // a cube that gets this far behind you was missed
+const TRAIL_MS = 110;        // saber trail length (time)
 const MIN_SWING = 1.6;       // m/s: slower than this is a touch, not a slice
 const DIR_TOL = 0.5;         // cos(60°): how close the swing must be to the arrow
 const STILL_FOG = new THREE.Color(0xc9d1dc);
@@ -105,6 +107,21 @@ function segHitsBox(a, b, h) {
   }
   return true;
 }
+// Saber vs cube: a box around the cube's centre, aligned with the world (so a rotated cube is no harder to
+// reach), a little taller than the cube, and a little wider for cubes in the outer lanes.
+const HIT_X = CUBE / 2 + 0.06, HIT_X_OUTER = CUBE / 2 + 0.11, HIT_Y = CUBE / 2 + 0.09, HIT_Z = CUBE / 2 + 0.06;
+function segHitsAabb(a, b, hx, hy, hz) {
+  let t0 = 0, t1 = 1;
+  for (const [k, h] of [['x', hx], ['y', hy], ['z', hz]]) {
+    const d = b[k] - a[k];
+    if (Math.abs(d) < 1e-9) { if (a[k] < -h || a[k] > h) return false; continue; }
+    let u = (-h - a[k]) / d, v = (h - a[k]) / d;
+    if (u > v) [u, v] = [v, u];
+    t0 = Math.max(t0, u); t1 = Math.min(t1, v);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
 function segPointDist(a, b, p) {
   const ab = tmpV.subVectors(b, a), t = Math.max(0, Math.min(1, tmpV2.subVectors(p, a).dot(ab) / (ab.lengthSq() || 1)));
   return tmpV2.copy(a).addScaledVector(ab, t).distanceTo(p);
@@ -142,6 +159,7 @@ export class Game {
     const shoot = new ShootStyle(this);
     this.styles = { ride: new RideStyle(this), shoot, still: shoot }; // STILL is SHOOT where time moves when you move
     this.tscale = 1; // STILL: how fast time runs (1 = normal); everything else is 1
+    this.saberFx = new SaberFx(this); // cosmetic only: blade clashes and wall scrapes
     this.calibrateHeight();
     this.resetRun();
   }
@@ -412,6 +430,7 @@ export class Game {
     for (const n of this.active) this._release(n);
     if (this.styles) for (const s of this._styleList()) s.reset();
     this.tscale = 1; if (this.player && this.player.setRate) this.player.setRate(1);
+    if (this.saberFx) this.saberFx.reset();
     this.active = []; this.hudDirty = true;
     this.inWall = false;
   }
@@ -488,6 +507,7 @@ export class Game {
       this.camera.position.z += (z - this.camera.position.z) * Math.min(1, dt * 4);
     }
     this._updateSabers(dt, pos);
+    this.saberFx.update(dt, this.mode === 'play' && this.style === 'saber' && !this.paused && !this.run.failed);
     this._updateWrist(dt);
     if (this.mode === 'play') this._updateInputs();
 
@@ -662,16 +682,23 @@ export class Game {
     }
   }
 
+  /** A slight ribbon behind the blade: the last ~0.1 s of its upper half, brighter the faster it moves. */
   _updateTrail(g, show) {
-    g.hist.unshift({ b: g.base.clone().lerp(g.tip, 0.15), t: g.tip.clone() });
-    if (g.hist.length > g.trailN) g.hist.pop();
+    const now = performance.now();
+    g.hist.unshift({ b: g.base.clone().lerp(g.tip, 0.45), t: g.tip.clone(), at: now });
+    while (g.hist.length > 2 && (now - g.hist[g.hist.length - 1].at > TRAIL_MS || g.hist.length > 40)) g.hist.pop();
     const p = g.trail.geometry.attributes.position.array, c = g.trail.geometry.attributes.color.array;
     const col = new THREE.Color(COLORS[g.hand]);
+    const bright = show ? Math.min(1, Math.max(0, (g.vTip.length() - 0.6) / 3)) : 0; // no trail while the blade is still
+    const last = g.hist.length - 1;
     for (let i = 0; i < g.trailN; i++) {
-      const h = g.hist[Math.min(i, g.hist.length - 1)];
-      p.set([h.b.x, h.b.y, h.b.z], i * 6); p.set([h.t.x, h.t.y, h.t.z], i * 6 + 3);
-      const k = show ? (1 - i / g.trailN) ** 2 : 0;
-      c.set([col.r * k * 0.3, col.g * k * 0.3, col.b * k * 0.3], i * 6); c.set([col.r * k, col.g * k, col.b * k], i * 6 + 3);
+      const f = i / (g.trailN - 1), x = f * last, i0 = Math.floor(x), i1 = Math.min(last, i0 + 1), w = x - i0; // spread evenly over the history
+      const h0 = g.hist[i0], h1 = g.hist[i1];
+      const bx = h0.b.x + (h1.b.x - h0.b.x) * w, by = h0.b.y + (h1.b.y - h0.b.y) * w, bz = h0.b.z + (h1.b.z - h0.b.z) * w;
+      const tx = h0.t.x + (h1.t.x - h0.t.x) * w, ty = h0.t.y + (h1.t.y - h0.t.y) * w, tz = h0.t.z + (h1.t.z - h0.t.z) * w;
+      p.set([bx, by, bz], i * 6); p.set([tx, ty, tz], i * 6 + 3);
+      const k = bright * (1 - f) ** 1.6 * 0.55;
+      c.set([col.r * k * 0.15, col.g * k * 0.15, col.b * k * 0.15], i * 6); c.set([col.r * k, col.g * k, col.b * k], i * 6 + 3);
     }
     g.trail.geometry.attributes.position.needsUpdate = true; g.trail.geometry.attributes.color.needsUpdate = true;
   }
@@ -784,11 +811,10 @@ export class Game {
           if (hit) { this._mineHit(n, g); this._release(n); this.active.splice(i, 1); }
           continue;
         }
-        m.updateMatrixWorld();
-        inv.copy(m.matrixWorld).invert();
+        const hx = n.col === 0 || n.col === 3 ? HIT_X_OUTER : HIT_X;
         for (let s = 0; s <= 4 && !hit; s++) {
-          la.lerpVectors(g.pBase, g.base, s / 4).applyMatrix4(inv); lb.lerpVectors(g.pTip, g.tip, s / 4).applyMatrix4(inv);
-          if (segHitsBox(la, lb, CUBE / 2 + 0.03)) hit = true;
+          la.lerpVectors(g.pBase, g.base, s / 4).sub(m.position); lb.lerpVectors(g.pTip, g.tip, s / 4).sub(m.position);
+          if (segHitsAabb(la, lb, hx, HIT_Y, HIT_Z)) hit = true;
         }
         if (hit) { this._cut(n, g, pos); this._release(n); this.active.splice(i, 1); }
       }

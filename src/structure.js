@@ -1,4 +1,4 @@
-import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwu7v3hh';
+import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwu8geng';
 // Song structure without touching Spotify's audio. Three public sources, combined into one energy
 // curve (how intense each moment is) plus, where possible, the real beat positions:
 //
