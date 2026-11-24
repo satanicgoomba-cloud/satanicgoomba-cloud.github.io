@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, ENERGY } from './shared.js?v=mwu0kew2';
+import { COLORS, ENERGY } from './shared.js?v=mwu3tfce';
 
 // SHOOT style: a pistol in each hand while the track carries you forward. Enemies step out ahead;
 // shoot each one on its beat (points for timing and for aim), dodge the bullets of the ones you
@@ -142,7 +142,7 @@ export class ShootStyle {
     const u = m.userData, col = VISOR[n.hp] || VISOR[1];
     u.visorMat.color.setHex(col); u.edge.color.setHex(col);
     u.vest.visible = n.hp >= 2; u.helmet.visible = n.hp >= 4;
-    u.body.rotation.set(0, 0, 0); u.body.position.set(0, -2, 0);
+    m.rotation.set(0, 0, 0); u.body.rotation.set(0, 0, 0); u.body.position.set(0, -2, 0);
     m.visible = true;
     return { ...n, mesh: m, hpLeft: n.hp, dead: false, dying: 0, fired: false, risen: 0, home: new THREE.Vector3(n.x, 0, 0) };
   }

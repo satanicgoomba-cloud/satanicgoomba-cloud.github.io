@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwu0kew2';
-import { activeMods, modMultiplier } from './mods.js?v=mwu0kew2';
-import { RideStyle } from './ride.js?v=mwu0kew2';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwu0kew2';
-import { ShootStyle } from './shoot.js?v=mwu0kew2';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwu3tfce';
+import { activeMods, modMultiplier } from './mods.js?v=mwu3tfce';
+import { RideStyle } from './ride.js?v=mwu3tfce';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwu3tfce';
+import { ShootStyle } from './shoot.js?v=mwu3tfce';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -750,7 +750,7 @@ export class Game {
     }
     this.active.push({ ...n, home, roll: n.type === 'note' ? rollFor(n.dir) : 0, mesh, dead: false });
   }
-  _release(n) { if (n.mesh) { n.mesh.visible = false; n.mesh.userData.used = false; } }
+  _release(n) { if (n.mesh) { n.mesh.visible = false; n.mesh.userData.used = false; n.mesh.rotation.set(0, 0, 0); } } // undo the fail tumble before reuse
 
   multiplier() { return Math.min(8, 1 + Math.floor(this.run.combo / 8)); }
 
