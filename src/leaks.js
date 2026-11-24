@@ -2,7 +2,7 @@
 // Private File System). Nothing is uploaded anywhere: the files stay on this headset or computer.
 // Because the game has the real audio here, it finds the tempo, beat and loud/quiet parts itself.
 
-import * as gdrive from './gdrive.js?v=mwv26029';
+import * as gdrive from './gdrive.js?v=mwv3716n';
 
 const INDEX = 'bb.leaks', INFO = 'bb.leakInfo', DIR = 'leaks';
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|flac|ogg|opus|webm)$/i;
@@ -177,6 +177,38 @@ function setDuration(track, ms) {
  * Tempo: autocorrelation of the onsets; phase: the comb offset that lines up the most onsets.
  * Energy: loudness per bar against the song's own quiet and loud parts.
  */
+/**
+ * Real silences: a second or more at least 45 dB below full scale and 35 dB below the song's typical level
+ * (a fade's tail counts). From the 10 ms loudness frames (natural log of mean square). [[t0, t1]] in ms.
+ */
+export function silences(all) {
+  const F = all.length, srt = Array.from(all).sort((a, b) => a - b), mid = srt[Math.floor(F * 0.5)] || 0;
+  const LN10 = Math.log(10), thr = Math.min(-4.5 * LN10, mid - 3.5 * LN10);
+  const out = []; let s = -1;
+  for (let f = 0; f <= F; f++) {
+    const q = f < F && all[f] < thr;
+    if (q && s < 0) s = f;
+    if (!q && s >= 0) { if (f - s >= 100) out.push([s * 10, f * 10]); s = -1; }
+  }
+  return out;
+}
+/** Cut the silences out of the sections as their own 'silent' parts (energy 0: no cubes there). */
+export function withSilence(sections, sil) {
+  if (!sil.length) return sections;
+  const out = [];
+  for (const s of sections) {
+    let t = s.t0;
+    for (const [a, b] of sil) {
+      if (b <= t || a >= s.t1) continue;
+      if (a > t) out.push({ ...s, t0: t, t1: a });
+      out.push({ t0: Math.max(a, t), t1: Math.min(b, s.t1), kind: 'silent', energy: 0 });
+      t = Math.min(b, s.t1);
+    }
+    if (t < s.t1) out.push({ ...s, t0: t, t1: s.t1 });
+  }
+  return out.filter((x) => x.t1 - x.t0 > 0).reduce((acc, x) => { const l = acc[acc.length - 1]; if (l && l.kind === 'silent' && x.kind === 'silent' && l.t1 === x.t0) l.t1 = x.t1; else acc.push(x); return acc; }, []);
+}
+
 export function analyzeBuffer(buf) {
   const sr = buf.sampleRate, n = buf.length, hop = Math.round(sr / 100), F = Math.floor(n / hop);
   const ch = [buf.getChannelData(0), buf.numberOfChannels > 1 ? buf.getChannelData(1) : null];
@@ -258,7 +290,7 @@ export function analyzeBuffer(buf) {
     sections.push({ t0: Math.round(grp[0].t0), t1: Math.round(grp[grp.length - 1].t1), kind, energy });
   }
   if (sections.length) { sections[0].t0 = 0; sections[sections.length - 1].t1 = Math.round((n / sr) * 1000); }
-  return { bpm: Math.round(bpm * 100) / 100, offsetMs: Math.round(bestPh * 10), sections };
+  return { bpm: Math.round(bpm * 100) / 100, offsetMs: Math.round(bestPh * 10), sections: withSilence(sections, silences(all)) };
 }
 export function cachedInfo(track) { return readJson(INFO, {})[track.id] || null; }
 
@@ -295,7 +327,7 @@ export class LeakPlayer {
     setDuration(track, Math.round(this.buf.duration * 1000));
     const all = readJson(INFO, {});
     let info = all[track.id];
-    if (!info || info.v !== 4) { info = { v: 4, ...analyzeBuffer(this.buf) }; all[track.id] = info; writeJson(INFO, all); }
+    if (!info || info.v !== 5) { info = { v: 5, ...analyzeBuffer(this.buf) }; all[track.id] = info; writeJson(INFO, all); }
     Object.assign(track, { bpm: info.bpm, offsetMs: info.offsetMs, sections: info.sections });
     return info;
   }

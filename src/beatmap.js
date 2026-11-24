@@ -1,4 +1,4 @@
-import { cachedInfo } from './bpm.js?v=mwv26029';
+import { cachedInfo } from './bpm.js?v=mwv3716n';
 // Beat maps without audio analysis.
 // Spotify's /audio-features and /audio-analysis are closed to new apps (Nov 2024), and the
 // page can't read Spotify's audio, so a map is: tempo (BPM + phase) + song sections -> seeded
@@ -116,7 +116,10 @@ export function generate(track, tempo, difficulty = 'normal', { sections = [], b
   if (!bt) { const g = grid(tempo); bt = []; for (let t = g.t0; t < endMs; t += g.spb) bt.push(t); }
   // Energy relative to the song itself: a hyped song's "verses" are still hyped. Sources (lyrics gaps,
   // osu! mappers' breaks) often call a loud part quiet, so the song's own median counts as steady.
-  const es = sections.map((s) => s.energy).filter((x) => x >= 0);
+  const es = sections.filter((s) => s.kind !== 'silent').map((s) => s.energy).filter((x) => x >= 0);
+  // real silence (found in the audio of your own songs): nothing to hit there at all
+  const silent = sections.filter((s) => s.kind === 'silent');
+  const isSilent = (t, t1 = t) => silent.some((s) => t1 >= s.t0 && t < s.t1);
   const med = es.length ? es.slice().sort((a, b) => a - b)[es.length >> 1] : 0.6;
   const lift = Math.max(0, 0.62 - med);
   const energyAt = (t) => { const s = sectionAt(sections, t); return Math.min(1, (s ? s.energy : 0.6) + lift); };
@@ -128,6 +131,7 @@ export function generate(track, tempo, difficulty = 'normal', { sections = [], b
 
   const place = (t, hand, spb, forceDir, opt = {}) => {
     const h = hs[hand];
+    if (isSilent(t)) return false;
     if (t - h.last > spb * 4) h.up = false;          // after a rest, start with a downswing
     const minGap = spb * (step >= 3 ? 0.24 : step >= 2 ? 0.49 : 0.74);
     if (t - h.last < minGap) return false;
@@ -171,14 +175,15 @@ export function generate(track, tempo, difficulty = 'normal', { sections = [], b
       phraseCol = { L: r() < 0.6 ? 1 : 0, R: r() < 0.6 ? 2 : 3 };
     }
 
+    const quietBar = isSilent(beat(0), nextDown);   // any silence in this bar: no walls or mines in it
     // breather bar (never in the busiest parts): a wall to dodge instead of cubes
-    if (bar % 16 === 15 && e < 0.8 && bar > 4) {
+    if (!quietBar && bar % 16 === 15 && e < 0.8 && bar > 4) {
       const kind = step >= 1 && r() < 0.5 ? 'top' : (wallSide = wallSide === 'L' ? 'R' : 'L');
       items.push({ id: id++, t: Math.round(beat(1) + shiftMs), type: 'wall', kind, dur: Math.round(spb * 2) });
       continue;
     }
     // quiet stretches: a side wall alongside the one cube per bar, on alternate bars
-    if (level === 0 && bar % 4 === 2 && step >= 0) {
+    if (!quietBar && level === 0 && bar % 4 === 2 && step >= 0) {
       wallSide = wallSide === 'L' ? 'R' : 'L';
       items.push({ id: id++, t: Math.round(beat(1) + shiftMs), type: 'wall', kind: wallSide, dur: Math.round(spb * 2) });
       const hand = wallSide === 'L' ? 'R' : 'L';     // the cube is on the open side
@@ -189,7 +194,7 @@ export function generate(track, tempo, difficulty = 'normal', { sections = [], b
     // every 8 bars: a wall that runs alongside the cubes. Side walls: lean away, and only the saber on
     // the open side has cubes. Low walls (Hard and up): duck, and the cubes stay on the bottom row.
     let feature = null;
-    if (bar % 8 === 5 && bar > 4 && step >= 0 && level >= 1) {
+    if (!quietBar && bar % 8 === 5 && bar > 4 && step >= 0 && level >= 1) {
       feature = step >= 1 && (bar >> 3) % 3 === 2 ? 'top' : (wallSide = wallSide === 'L' ? 'R' : 'L');
       items.push({ id: id++, t: Math.round(beat(0) + shiftMs), type: 'wall', kind: feature, dur: Math.round(spb * 4) });
       if (feature !== 'top') level = Math.min(level, 3);
@@ -234,7 +239,7 @@ export function generate(track, tempo, difficulty = 'normal', { sections = [], b
     }
     // mines: top row of the column a saber isn't using this phrase, between beats, and only where
     // that saber's nearby swings are straight up/down and low (so a clean swing never touches it)
-    if (step >= 0 && !feature && r() < 0.06 + step * 0.03) { // rare: most top human maps use none
+    if (!quietBar && step >= 0 && !feature && r() < 0.06 + step * 0.03) { // rare: most top human maps use none
       const bars = items.slice(barStart).filter((x) => x.type === 'note');
       const sides = r() < 0.5 ? ['L', 'R'] : ['R', 'L'];
       for (const hand of sides) {
