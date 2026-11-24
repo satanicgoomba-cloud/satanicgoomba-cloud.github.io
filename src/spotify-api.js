@@ -1,16 +1,26 @@
-import { getAccessToken } from './spotify-auth.js?v=mwuy8pu8';
+import { getAccessToken } from './spotify-auth.js?v=mwuzhn2x';
 
 const API = 'https://api.spotify.com/v1';
 
-// Spotify's request limit: a short Retry-After is waited out (twice at most); a long one (the app's quota is
+// Spotify's request limit: a short Retry-After is waited out (once); a long one (the app's quota is
 // used up) stops all calls until then with a clear message, instead of hanging or hammering Spotify, which
 // only makes the wait longer.
-let coolUntil = 0;
+// The browser can't read Spotify's Retry-After (it isn't shared with web pages), so the wait is unknown:
+// each refusal in a row waits longer (1, 2, 5, 15, 30, 60 min), remembered across reloads, and a success resets it.
+const COOL = 'bb.spCool', STEPS = [1, 2, 5, 15, 30, 60];
+let { until: coolUntil = 0, level: coolLevel = 0 } = (() => { try { return JSON.parse(localStorage.getItem(COOL)) || {}; } catch { return {}; } })();
+const saveCool = () => { try { localStorage.setItem(COOL, JSON.stringify({ until: coolUntil, level: coolLevel })); } catch { /* ignore */ } };
+const at = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 const coolErr = () => {
   const min = Math.max(1, Math.ceil((coolUntil - Date.now()) / 60000));
-  return Object.assign(new Error(`Spotify's request limit for this app is used up: try again in about ${min} min (Practice and Leaks still work)`), { status: 429, cooldown: true });
+  const msg = coolLevel > 1
+    ? `Spotify is still refusing this app (request limit, refused ${coolLevel} times in a row). Next try at ${at(coolUntil)}, in ${min} min. Practice and Leaks still work.`
+    : `Spotify's request limit for this app is used up: trying again at ${at(coolUntil)} (in ${min} min). Practice and Leaks still work.`;
+  return Object.assign(new Error(msg), { status: 429, cooldown: true });
 };
 export const coolingDown = () => Date.now() < coolUntil;
+/** TRY AGAIN: allow one request now. If Spotify still refuses, the next wait is the longer one. */
+export function retryNow() { coolUntil = 0; saveCool(); }
 
 export async function api(path, opts = {}, tries = 0) {
   if (Date.now() < coolUntil) throw coolErr();
@@ -22,14 +32,17 @@ export async function api(path, opts = {}, tries = 0) {
   if (r.status === 429) {
     const wait = Number(r.headers.get('Retry-After')) || 2;
     let quota = false; try { quota = /QUOTA/i.test(await r.text()); } catch { /* ignore */ }
-    if (!quota && wait <= 10 && tries < 2) {
+    if (!quota && wait <= 10 && tries < 1) {
       await new Promise((res) => setTimeout(res, wait * 1000));
       return api(path, opts, tries + 1);
     }
-    coolUntil = Date.now() + Math.max(wait, 30) * 1000;
-    console.warn(`Spotify 429: waiting ${wait}s${quota ? ' (quota exceeded)' : ''}`);
+    const step = STEPS[Math.min(coolLevel, STEPS.length - 1)] * 60;
+    coolLevel++;
+    coolUntil = Date.now() + Math.max(wait, step) * 1000; saveCool();
+    console.warn(`Spotify 429 (${coolLevel} in a row${quota ? ', quota exceeded' : ''}): next try in ${Math.round((coolUntil - Date.now()) / 1000)}s`);
     throw coolErr();
   }
+  if (coolLevel) { coolLevel = 0; coolUntil = 0; saveCool(); } // Spotify answered: the limit is over
   if (r.status === 204 || r.status === 202) return null;
   const text = await r.text();
   const j = text ? JSON.parse(text) : null;

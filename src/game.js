@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwuy8pu8';
-import { activeMods, modMultiplier } from './mods.js?v=mwuy8pu8';
-import { RideStyle } from './ride.js?v=mwuy8pu8';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwuy8pu8';
-import { ShootStyle } from './shoot.js?v=mwuy8pu8';
-import { SaberFx } from './saberfx.js?v=mwuy8pu8';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwuzhn2x';
+import { activeMods, modMultiplier } from './mods.js?v=mwuzhn2x';
+import { RideStyle } from './ride.js?v=mwuzhn2x';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwuzhn2x';
+import { ShootStyle } from './shoot.js?v=mwuzhn2x';
+import { SaberFx } from './saberfx.js?v=mwuzhn2x';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -361,8 +361,8 @@ export class Game {
     // debris: the two halves of sliced cubes
     this.debris = [];
     for (let i = 0; i < 48; i++) {
-      const outer = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0x000000, emissiveIntensity: 0.6, metalness: 0.3, roughness: 0.35, transparent: true, side: THREE.DoubleSide });
-      const capM = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, side: THREE.DoubleSide });
+      const outer = new THREE.MeshStandardMaterial({ color: 0x222222, emissive: 0x000000, emissiveIntensity: 0.6, metalness: 0.3, roughness: 0.35, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+      const capM = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, side: THREE.DoubleSide });
       const m = new THREE.Mesh(new THREE.BufferGeometry(), [outer, capM]);
       m.visible = false; m.userData = { outer, capM, vel: v3(), spin: v3(), life: 0 };
       this.scene.add(m); this.debris.push(m);
@@ -560,7 +560,10 @@ export class Game {
       m.position.set(n.home.x, n.home.y - (1 - ease) * 0.5, z);
       if (n.type === 'note') {
         m.rotation.z = n.roll + (1 - ease) * Math.PI * 0.75;
-        m.userData.mat.opacity = m.userData.lineMat.opacity = m.userData.markMat.opacity = Math.min(1, age / 0.25) * this.ghostFade(z);
+        const a = Math.min(1, age / 0.25) * this.ghostFade(z), near = this.nearFade(z);
+        m.userData.mat.opacity = m.userData.lineMat.opacity = a * near;
+        m.userData.markMat.opacity = a * (0.35 + 0.65 * near);   // the arrow stays readable longest
+        m.userData.mat.depthWrite = near > 0.95;                  // see-through cubes don't hide the ones behind
       } else {
         m.rotation.set(now / 700 + n.id, now / 900, 0);
       }
@@ -614,6 +617,14 @@ export class Game {
   /** Add points: × combo multiplier × modifiers, halved after hitting zero on No Fail. */
   addScore(pts) {
     this.run.score += Math.round(pts * this.multiplier() * this.modMult * (this.run.zeroed ? 0.5 : 1));
+  }
+  /** Cubes close to you turn see-through so the next ones stay visible: solid until 1.6 m before the
+   *  hit point, 40% on it, 12% once past it. */
+  nearFade(z) {
+    const d = this.hitZ() - z;
+    if (d >= 1.6) return 1;
+    if (d >= 0) return 0.4 + 0.6 * (d / 1.6);
+    return Math.max(0.12, 0.4 + d / 0.6 * 0.28);
   }
   /** Ghost notes: full until 5 m out, gone 2.5 m before the hit point. */
   ghostFade(z) {
@@ -883,11 +894,11 @@ export class Game {
       piece.position.copy(h.centroid).applyQuaternion(q).add(m.position);
       piece.quaternion.copy(q);
       const u = piece.userData, side = k === 0 ? 1 : -1;
-      u.outer.color.copy(col).multiplyScalar(0.55); u.outer.emissive.copy(col); u.outer.opacity = 1; u.capM.opacity = 1;
+      u.outer.color.copy(col).multiplyScalar(0.55); u.outer.emissive.copy(col); u.outer.opacity = 0.5; u.capM.opacity = 0.5;
       u.capM.color.copy(col).lerp(new THREE.Color(0xffffff), 0.6);
       u.vel.set(0, 0.4, Math.min(1.5, this.speed() * 0.1)).addScaledVector(normalW, side * 1.6).addScaledVector(swingW, 1.6);
       u.spin.copy(normalW.clone().cross(swingW)).multiplyScalar(side * 7).add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5));
-      u.life = 1.1; piece.visible = true;
+      u.life = u.life0 = 0.8; piece.visible = true;
     });
     this._burst(m.position, hex, 26, 1.8);
   }
@@ -990,7 +1001,7 @@ export class Game {
       if (piece.position.y < 0.05) { piece.position.y = 0.05; u.vel.y *= -0.3; u.vel.x *= 0.7; u.vel.z *= 0.7; u.spin.multiplyScalar(0.6); }
       const ang = u.spin.length();
       if (ang > 1e-4) piece.quaternion.premultiply(this._q.setFromAxisAngle(tmpV.copy(u.spin).divideScalar(ang), ang * dt));
-      const f = Math.min(1, u.life / 0.45);
+      const f = 0.5 * Math.max(0, u.life / (u.life0 || 0.8)) ** 1.5; // sliced: half see-through at once, then gone
       u.outer.opacity = f; u.capM.opacity = f;
       if (u.life <= 0) piece.visible = false;
     }

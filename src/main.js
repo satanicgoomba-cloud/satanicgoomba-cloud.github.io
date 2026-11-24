@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwuy8pu8';
-import * as sp from './spotify-api.js?v=mwuy8pu8';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwuy8pu8';
+import * as auth from './spotify-auth.js?v=mwuzhn2x';
+import * as sp from './spotify-api.js?v=mwuzhn2x';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwuzhn2x';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwuy8pu8';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwuy8pu8';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwuy8pu8';
-import { Game } from './game.js?v=mwuy8pu8';
-import { modLabels } from './mods.js?v=mwuy8pu8';
-import * as leaks from './leaks.js?v=mwuy8pu8';
-import * as gdrive from './gdrive.js?v=mwuy8pu8';
-import { Pointers } from './ui3d.js?v=mwuy8pu8';
-import { Menu } from './menu3d.js?v=mwuy8pu8';
-import * as prof from './profile.js?v=mwuy8pu8';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwuzhn2x';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwuzhn2x';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwuzhn2x';
+import { Game } from './game.js?v=mwuzhn2x';
+import { modLabels } from './mods.js?v=mwuzhn2x';
+import * as leaks from './leaks.js?v=mwuzhn2x';
+import * as gdrive from './gdrive.js?v=mwuzhn2x';
+import { Pointers } from './ui3d.js?v=mwuzhn2x';
+import { Menu } from './menu3d.js?v=mwuzhn2x';
+import * as prof from './profile.js?v=mwuzhn2x';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -72,7 +72,7 @@ const menu = new Menu(game.scene, pointers, {
   onSearch: (q, now) => runSearch(q, now),
   loggedIn: () => auth.isLoggedIn(),
   likedMsg: () => S.likedMsg || '',
-  onLikedRetry: () => { S.likedMsg = ''; menu.refresh(); loadSpotify(); },
+  onLikedRetry: () => { sp.retryNow(); S.likedMsg = ''; menu.refresh(); loadSpotify(); },
   best: (id) => prof.bestFor(prof.loadStats().tracks[id], settings.style || 'saber'),
   settings: () => settings,
   setSetting: (k, v) => {
