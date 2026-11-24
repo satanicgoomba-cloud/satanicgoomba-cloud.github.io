@@ -12,7 +12,11 @@ const API = 'https://www.googleapis.com/drive/v3';
 const AUDIO = /\.(mp3|m4a|aac|wav|flac|ogg|opus|webm)$/i;
 const FOLDER = 'application/vnd.google-apps.folder';
 
-const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
+// Your own Google client (not a secret: it's in every Google sign-in link) and your "Slicewave Leaks" folder,
+// pre-filled so the Quest needs no typing. The folder stays private: only your Google login can read it.
+const DEFAULTS = { clientId: '158609929298-n1v7h8gm0h3oa5hi9bicu5ep7sfe2e3e.apps.googleusercontent.com', folder: '1DhiDKo0tvbPyvMCJn8LH50pU9SNt5mKr' };
+const stored = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
+const read = () => { const c = stored(); return { ...c, clientId: c.clientId || DEFAULTS.clientId, folder: c.folder || DEFAULTS.folder }; };
 const write = (c) => localStorage.setItem(KEY, JSON.stringify(c));
 const patch = (p) => { const c = { ...read(), ...p }; write(c); return c; };
 
@@ -33,7 +37,7 @@ export function setFolder(link) {
 export function connected() { return !!read().folder; }
 export function tokenValid() { const c = read(); return !!c.token && c.exp - Date.now() > 60000; }
 export function minutesLeft() { const c = read(); return c.token ? Math.max(0, Math.round((c.exp - Date.now()) / 60000)) : 0; }
-export function forget() { const c = read(); write({ clientId: c.clientId }); }
+export function forget() { const c = stored(); write(c.clientId ? { clientId: c.clientId } : {}); }
 
 function redirectUri() { return location.origin + location.pathname.replace(/index\.html$/, ''); }
 
