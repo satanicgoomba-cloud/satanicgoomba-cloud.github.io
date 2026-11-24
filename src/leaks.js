@@ -2,7 +2,7 @@
 // Private File System). Nothing is uploaded anywhere: the files stay on this headset or computer.
 // Because the game has the real audio here, it finds the tempo, beat and loud/quiet parts itself.
 
-import * as gdrive from './gdrive.js?v=mwuth3z3';
+import * as gdrive from './gdrive.js?v=mwuy8pu8';
 
 const INDEX = 'bb.leaks', INFO = 'bb.leakInfo', DIR = 'leaks';
 const AUDIO_EXT = /\.(mp3|m4a|aac|wav|flac|ogg|opus|webm)$/i;
@@ -19,7 +19,7 @@ function parseName(file) {
   const m = /^(.+?)\s+-\s+(.+)$/.exec(base);
   return m ? { artist: m[1].trim(), name: m[2].trim() } : { artist: 'Leak', name: base };
 }
-const toTrack = (e) => ({ id: `leak:${e.file}`, file: e.file, name: e.name, artist: e.artist, duration_ms: e.duration_ms || 0, art: null, leak: true, cloud: e.local === false });
+const toTrack = (e) => ({ id: `leak:${e.file}`, file: e.file, name: e.name, artist: e.artist, duration_ms: e.duration_ms || 0, art: null, leak: true, cloud: e.local === false, folder: e.folder || '' });
 
 export function list() { return readJson(INDEX, []).map(toTrack).sort((a, b) => a.name.localeCompare(b.name)); }
 export function count() { return readJson(INDEX, []).length; }
@@ -32,13 +32,14 @@ export function mergeDrive(files) {
   const names = new Set(idx.map((e) => e.file));
   let added = 0;
   for (const f of files) {
-    if (byDrive.has(f.id)) continue;
+    const had = byDrive.get(f.id);
+    if (had) { had.folder = f.folder || ''; continue; }   // keep its folder up to date (moved on Drive)
     const local = idx.find((e) => !e.drive && e.file === f.name && e.size === f.size);
-    if (local) { local.drive = f.id; continue; }          // already imported by hand: same song
+    if (local) { local.drive = f.id; local.folder = f.folder || ''; continue; }          // already imported by hand: same song
     let file = f.name;
     for (let k = 2; names.has(file); k++) file = f.name.replace(/(\.[^.]+)?$/, ` (${k})$1`);
     names.add(file);
-    idx.push({ file, size: f.size, ...parseName(f.name), duration_ms: 0, drive: f.id, local: false });
+    idx.push({ file, size: f.size, ...parseName(f.name), duration_ms: 0, drive: f.id, local: false, folder: f.folder || '' });
     added++;
   }
   // songs gone from Drive and never downloaded: drop them
@@ -74,11 +75,33 @@ export async function downloadAll(onProgress = () => {}) {
   return { done, failed, left: todo.length - done };
 }
 
+/**
+ * One folder's view: its subfolders first (A–Z), then its songs. Inside a folder the first row goes back up.
+ * Folder rows: { id: 'dir:<path>', isDir: true, dir: <path to open>, name, artist, count }.
+ */
+export function folderView(tracks, at = '') {
+  const pre = at ? `${at}/` : '', subs = new Map(), songs = [];
+  for (const t of tracks) {
+    const f = t.folder || '';
+    if (f === at) { songs.push(t); continue; }
+    if (at && !f.startsWith(pre)) continue;
+    const name = f.slice(pre.length).split('/')[0];
+    subs.set(name, (subs.get(name) || 0) + 1);
+  }
+  const rows = [...subs].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+    .map(([name, n]) => ({ id: `dir:${pre}${name}`, isDir: true, dir: pre + name, name, artist: `Folder · ${n} song${n === 1 ? '' : 's'}`, count: n, duration_ms: 0 }));
+  if (at) {
+    const up = at.split('/').slice(0, -1).join('/');
+    rows.unshift({ id: `dir:${up}`, isDir: true, up: true, dir: up, name: '◀ Back', artist: up ? `to ${up.split('/').pop()}` : 'to all leaks', duration_ms: 0 });
+  }
+  return rows.concat(songs);
+}
+
 /** Words in any order, matched against title, artist and file name. */
 export function filter(tracks, q) {
   const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return tracks;
-  return tracks.filter((t) => { const hay = `${t.name} ${t.artist} ${t.file}`.toLowerCase(); return words.every((w) => hay.includes(w)); });
+  return tracks.filter((t) => { const hay = `${t.name} ${t.artist} ${t.file} ${t.folder || ''}`.toLowerCase(); return words.every((w) => hay.includes(w)); });
 }
 
 function durationOf(file) {
@@ -110,7 +133,8 @@ export async function importFiles(files, onProgress = () => {}) {
       const fh = await d.getFileHandle(f.name, { create: true });
       const w = await fh.createWritable();
       await w.write(f); await w.close();
-      const e = { file: f.name, size: f.size, ...parseName(f.name), duration_ms: await durationOf(f) };
+      const rel = (f.webkitRelativePath || '').split('/').slice(1, -1).join('/'); // "Import a folder": keep its subfolders
+      const e = { file: f.name, size: f.size, ...parseName(f.name), duration_ms: await durationOf(f), folder: rel || (old && old.folder) || '' };
       if (old) idx.splice(idx.indexOf(old), 1, e); else idx.push(e);
       have.set(f.name, e); added++;
       if (added % 20 === 0) writeJson(INDEX, idx);

@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwuth3z3';
-import * as sp from './spotify-api.js?v=mwuth3z3';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwuth3z3';
+import * as auth from './spotify-auth.js?v=mwuy8pu8';
+import * as sp from './spotify-api.js?v=mwuy8pu8';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwuy8pu8';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwuth3z3';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwuth3z3';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwuth3z3';
-import { Game } from './game.js?v=mwuth3z3';
-import { modLabels } from './mods.js?v=mwuth3z3';
-import * as leaks from './leaks.js?v=mwuth3z3';
-import * as gdrive from './gdrive.js?v=mwuth3z3';
-import { Pointers } from './ui3d.js?v=mwuth3z3';
-import { Menu } from './menu3d.js?v=mwuth3z3';
-import * as prof from './profile.js?v=mwuth3z3';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwuy8pu8';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwuy8pu8';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwuy8pu8';
+import { Game } from './game.js?v=mwuy8pu8';
+import { modLabels } from './mods.js?v=mwuy8pu8';
+import * as leaks from './leaks.js?v=mwuy8pu8';
+import * as gdrive from './gdrive.js?v=mwuy8pu8';
+import { Pointers } from './ui3d.js?v=mwuy8pu8';
+import { Menu } from './menu3d.js?v=mwuy8pu8';
+import * as prof from './profile.js?v=mwuy8pu8';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -47,8 +47,9 @@ window.__bb = { game, S, menu: null };
 const isPractice = (t) => t && t.id.startsWith('practice');
 const isLeak = (t) => t && String(t.id).startsWith('leak:');
 const isLocal = (t) => isPractice(t) || isLeak(t);   // plays from this device, not Spotify
-S.leaks = new leaks.LeakPlayer(); S.leakList = leaks.list(); S.leakQ = '';
-const leakView = () => leaks.filter(S.leakList, S.leakQ);
+S.leaks = new leaks.LeakPlayer(); S.leakList = leaks.list(); S.leakQ = ''; S.leakDir = '';
+// searching looks through every folder; otherwise you see one folder (subfolders at the top)
+const leakView = () => S.leakQ ? leaks.filter(S.leakList, S.leakQ) : leaks.folderView(S.leakList, S.leakDir);
 function bestLine(t) {
   const st = prof.loadStats().tracks[t.id], style = settings.style || 'saber';
   return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Ride', shoot: 'Shoot', still: 'Still' }[style]}) · played ${st.plays}×` : 'Not played yet';
@@ -65,6 +66,8 @@ const menu = new Menu(game.scene, pointers, {
     try { gdrive.login(); } catch (e) { S.driveMsg = e.message; menu.refresh(); }
   },
   onLeakSearch: (q) => { S.leakQ = q; },
+  onLeakFolder: (dir) => { S.leakDir = dir; },
+  leakFolder: () => S.leakDir,
   searchState: () => S.search,
   onSearch: (q, now) => runSearch(q, now),
   loggedIn: () => auth.isLoggedIn(),
@@ -95,7 +98,7 @@ const menu = new Menu(game.scene, pointers, {
       lookup: tempo.source === 'default' && !bpmPending.has(t.id) ? lookupDiag(t.id) : '',
     };
   },
-  onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : tab === 'leaks' ? leakView() : tab === 'search' ? S.search.results : S.liked, index),
+  onPlay: (tab, index) => playFromList(tab === 'practice' ? PRACTICE_TRACKS : tab === 'leaks' ? leakSongs(index) : tab === 'search' ? S.search.results : S.liked, index),
   onShareCard: () => prof.shareCard(prof.summary(S.profile)).then(() => game.flash('Profile card saved', 2000)).catch(() => {}),
   onExit: () => exitToLobby(),
   onLogin: () => startLogin(),
@@ -372,7 +375,13 @@ function exitToLobby() {
 /* ---------------- songs ---------------- */
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
+/** The songs (not folder rows) of the LEAKS view, for playing: plays on through this folder. */
+function leakSongs(index) {
+  const v = leakView(), songs = v.filter((t) => !t.isDir);
+  return songs.length ? Object.assign(songs, { at: Math.max(0, songs.indexOf(v[index])) }) : songs;
+}
 function playFromList(list, index) {
+  if (list.at !== undefined) index = list.at;
   if (!list.length) return;
   const rest = list.slice(index + 1).concat(list.slice(0, index));
   S.queue = [list[index], ...(settings.shuffle ? shuffle(rest) : rest)];

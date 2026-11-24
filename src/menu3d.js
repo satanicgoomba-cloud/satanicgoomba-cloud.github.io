@@ -1,5 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwuth3z3';
-import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwuth3z3';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwuy8pu8';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwuy8pu8';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -84,7 +84,9 @@ export class Menu {
   /** The search box's state: Spotify search, or the Leaks filter (its own query). */
   qState() { return this.tab === 'leaks' ? { ...this.api.leakState(), busy: false, error: '' } : this.api.searchState(); }
   set ROWS(v) { /* fixed per tab */ }
-  selected() { return this.list()[this.sel]; }
+  selected() { const t = this.list()[this.sel]; return t && !t.isDir ? t : undefined; }
+  /** First song row (folder rows come first in LEAKS). */
+  _firstSong() { const i = this.list().findIndex((t) => !t.isDir); return i < 0 ? 0 : i; }
 
   _scrollBy(d) {
     const max = Math.max(0, this.list().length - this.ROWS);
@@ -119,7 +121,7 @@ export class Menu {
       g.fillStyle = C.muted; g.font = FONT(600, 24); g.textAlign = 'left'; g.textBaseline = 'top';
       const st = this.api.searchState();
       const lk = this.api.leakState();
-      const msg = this.tab === 'leaks' ? (!lk.supported ? 'This browser can\'t store songs for the game.' : lk.count ? `No leaks match "${lk.q}".` : lk.driveMsg ? lk.driveMsg : lk.drive ? 'Signed in to Google Drive. Load your song list:' : 'Your songs are on Google Drive. Connect once (it opens Google sign-in outside VR), and they show up here.')
+      const msg = this.tab === 'leaks' ? (lk.count && !lk.q ? 'This folder is empty.' : !lk.supported ? 'This browser can\'t store songs for the game.' : lk.count ? `No leaks match "${lk.q}".` : lk.driveMsg ? lk.driveMsg : lk.drive ? 'Signed in to Google Drive. Load your song list:' : 'Your songs are on Google Drive. Connect once (it opens Google sign-in outside VR), and they show up here.')
         : this.tab === 'liked' ? (this.api.loggedIn() ? (this.api.likedMsg() || 'Loading your Liked Songs…') : 'Log in with Spotify on the start page to see your Liked Songs. Practice works without it.')
         : this.tab === 'search' ? (!this.api.loggedIn() ? 'Log in with Spotify to search.' : st.busy ? 'Searching…' : st.error ? st.error : st.q ? 'No songs found.' : 'Tap the box above and type a song or artist.') : '';
       wrap(g, msg, 34, top + 20, W - 68, 32);
@@ -137,7 +139,11 @@ export class Menu {
       g.fillStyle = idx === this.sel ? 'rgba(0,229,255,0.22)' : hov ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)'; g.fill();
       if (idx === this.sel) { g.strokeStyle = C.cyan; g.lineWidth = 3; g.stroke(); }
       const im = art(t.art, () => p.redraw());
-      if (im) g.drawImage(im, 26, y + 6, 60, 60);
+      if (t.isDir) { // folder: a tab-topped folder shape (or a back arrow)
+        g.fillStyle = t.up ? 'rgba(255,255,255,0.14)' : '#f5b83d';
+        if (t.up) { rr(g, 26, y + 6, 60, 60, 8); g.fill(); g.fillStyle = '#fff'; g.font = FONT(900, 30); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('◀', 56, y + 37); }
+        else { rr(g, 28, y + 14, 26, 14, 4); g.fill(); rr(g, 28, y + 20, 56, 40, 6); g.fill(); g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(28, y + 28, 56, 3); }
+      } else if (im) g.drawImage(im, 26, y + 6, 60, 60);
       else {
         rr(g, 26, y + 6, 60, 60, 8); g.fillStyle = t.id.startsWith('practice') ? C.pink : t.leak ? '#7c3aed' : 'rgba(255,255,255,0.1)'; g.fill();
         if (t.leak) { g.fillStyle = '#fff'; g.font = FONT(900, 30); g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('♪', 56, y + 37); }
@@ -148,7 +154,7 @@ export class Menu {
       const best = this.api.best(t.id);
       g.textAlign = 'right';
       g.fillStyle = best ? C.gold : C.muted; g.font = FONT(700, 20);
-      g.fillText(best ? best.toLocaleString() : t.cloud ? '☁' : t.duration_ms ? mmss(t.duration_ms) : '', W - 30, y + 26);
+      g.fillText(t.isDir ? (t.up ? '' : '›') : best ? best.toLocaleString() : t.cloud ? '☁' : t.duration_ms ? mmss(t.duration_ms) : '', W - 30, y + 26);
     }
     p.button('down', W - 82, p.H - 76, 58, 60, '▼', { size: 26 });
     if (list.length > this.ROWS) {
@@ -161,10 +167,14 @@ export class Menu {
     if (id === 'searchbox') { this.keysOpen = !this.keysOpen; this.show(this.screen); return; }
     if (id === 'drive') { this.api.onDrive(); return; }
     if (id === 'likedRetry') { this.api.onLikedRetry(); return; }
-    if (id.startsWith('tab:')) { this.tab = id.slice(4); this.sel = 0; this.scroll = 0; this.keysOpen = this.tab === 'search' && !this.api.searchState().q; this.show(this.screen); }
+    if (id.startsWith('tab:')) { this.tab = id.slice(4); this.scroll = 0; this.sel = this._firstSong(); this.keysOpen = this.tab === 'search' && !this.api.searchState().q; this.show(this.screen); }
     else if (id === 'up') this._scrollBy(-this.ROWS + 1);
     else if (id === 'down') this._scrollBy(this.ROWS - 1);
-    else if (id.startsWith('row:')) this.sel = +id.slice(4);
+    else if (id.startsWith('row:')) {
+      const t = this.list()[+id.slice(4)];
+      if (t && t.isDir && this.api.onLeakFolder) { this.api.onLeakFolder(t.dir); this.scroll = 0; this.sel = this._firstSong(); this.songs.redraw(); this.card.redraw(); return; }
+      this.sel = +id.slice(4);
+    }
     if (id.startsWith('row:') && this.searchy() && this.keysOpen) { this.keysOpen = false; this.show(this.screen); }
     if (this.api.onSelectTrack && this.tab !== 'practice' && this.tab !== 'leaks') this.api.onSelectTrack(this.list(), this.sel);
     this.songs.redraw(); this.card.redraw();
@@ -191,7 +201,7 @@ export class Menu {
     else if (id === 'k:done') { this.keysOpen = false; this.show(this.screen); if (!leak) this.api.onSearch(q, true); return; }
     else if (id.startsWith('k:')) q = (q + id.slice(2).toLowerCase()).slice(0, 60);
     this.sel = 0; this.scroll = 0;
-    if (leak) { this.api.onLeakSearch(q); this.card.redraw(); } else this.api.onSearch(q, false);
+    if (leak) { this.api.onLeakSearch(q); this.sel = this._firstSong(); this.card.redraw(); } else this.api.onSearch(q, false);
     this.songs.redraw();
   }
   /** Typing on a real keyboard (screen mode). Returns true if the key was used. */

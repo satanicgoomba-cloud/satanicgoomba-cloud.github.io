@@ -94,14 +94,14 @@ async function api(path, params = {}, raw = false) {
   return raw ? res : res.json();
 }
 
-/** All audio files in the folder and its subfolders: [{ id, name, size }]. */
+/** All audio files in the folder and its subfolders: [{ id, name, size, folder }] (folder: 'Sub/Deeper', '' at the top). */
 export async function listSongs(onProgress = () => {}) {
   const c = read();
   if (!c.folder) throw new Error('Paste your Drive folder link first');
   try { const f = await api(`/files/${c.folder}`, { fields: 'name', supportsAllDrives: 'true' }); patch({ folderName: f.name }); } catch (e) { if (e.expired) throw e; }
-  const out = [], queue = [c.folder], seen = new Set();
+  const out = [], queue = [{ id: c.folder, path: '' }], seen = new Set();
   while (queue.length && seen.size < 200) {
-    const dir = queue.shift();
+    const { id: dir, path } = queue.shift();
     if (seen.has(dir)) continue; seen.add(dir);
     let pageToken = '';
     do {
@@ -110,9 +110,9 @@ export async function listSongs(onProgress = () => {}) {
         pageSize: '1000', supportsAllDrives: 'true', includeItemsFromAllDrives: 'true', ...(pageToken ? { pageToken } : {}),
       });
       for (const f of r.files || []) {
-        if (f.mimeType === FOLDER) queue.push(f.id);
+        if (f.mimeType === FOLDER) queue.push({ id: f.id, path: path ? `${path}/${f.name}` : f.name });
         else if (f.name.startsWith('._')) continue; // macOS metadata twins (exFAT drives), not songs
-        else if (AUDIO.test(f.name) || /^audio\//.test(f.mimeType || '')) out.push({ id: f.id, name: f.name, size: +f.size || 0 });
+        else if (AUDIO.test(f.name) || /^audio\//.test(f.mimeType || '')) out.push({ id: f.id, name: f.name, size: +f.size || 0, folder: path });
       }
       pageToken = r.nextPageToken || '';
       onProgress(out.length);
