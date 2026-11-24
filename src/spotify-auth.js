@@ -141,8 +141,8 @@ export async function handleRedirect() {
 
 async function tokenRequest(body) {
   const r = await fetch(TOKEN_URL, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-  const j = await r.json();
-  if (!r.ok) throw new Error(`Spotify token error: ${j.error_description || j.error || r.status}`);
+  let j = {}; try { j = await r.json(); } catch { /* rate limit or outage pages aren't JSON */ }
+  if (!r.ok) throw Object.assign(new Error(`Spotify token error: ${j.error_description || j.error || r.status}`), { status: r.status, code: j.error || '' });
   const old = readToken();
   const tok = {
     access_token: j.access_token,
@@ -179,7 +179,12 @@ export async function getAccessToken() {
   refreshing = refreshing || tokenRequest(new URLSearchParams({
     client_id: getClientId(), grant_type: 'refresh_token', refresh_token: tok.refresh_token,
   })).finally(() => { refreshing = null; });
-  try { return (await refreshing).access_token; } catch (e) { logout(); throw e; }
+  try { return (await refreshing).access_token; } catch (e) {
+    // Only a login Spotify has really cancelled (revoked, or replaced by a newer one) is forgotten. A rate
+    // limit, an outage or no internet used to sign you out too; now the login is kept and tried again later.
+    if (e.code === 'invalid_grant' || e.code === 'invalid_client') { logout(); throw new Error('Your Spotify login was cancelled by Spotify: log in again.'); }
+    throw Object.assign(new Error(e.status === 429 ? 'Spotify is busy (request limit): try again in a few minutes' : `Couldn't renew the Spotify login (${e.message}): try again in a moment`), { status: e.status === 429 ? 429 : e.status });
+  }
 }
 
 /** Disconnect: forget tokens (Spotify Developer Terms require a working disconnect). */
