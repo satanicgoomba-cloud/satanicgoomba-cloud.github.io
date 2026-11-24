@@ -1,9 +1,12 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwtwdedb';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwtz60fr';
+import { activeMods, modMultiplier } from './mods.js?v=mwtz60fr';
+import { RideStyle } from './ride.js?v=mwtz60fr';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwtz60fr';
+import { ShootStyle } from './shoot.js?v=mwtz60fr';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
-const SPAWN_DIST = 16;       // cubes appear this far down the track
 const LANE = 0.5;            // column spacing
 const ROW = 0.42;            // row spacing
 const CUBE = 0.38;           // cube size
@@ -11,7 +14,6 @@ const BLADE = 1.0;           // saber blade length
 const MISS_Z = 0.5;          // a cube that gets this far behind you was missed
 const MIN_SWING = 1.6;       // m/s: slower than this is a touch, not a slice
 const DIR_TOL = 0.5;         // cos(60°): how close the swing must be to the arrow
-const COLORS = { L: 0xff2d6f, R: 0x00e5ff };
 const PALETTES = {
   normal: { fog: 0x07030f, rings: [0x00e5ff, 0xff2d6f] },
   calm: { fog: 0x040716, rings: [0x3d5afe, 0x7c4dff] },
@@ -27,6 +29,7 @@ const rollFor = (d) => Math.atan2(DIRS[d][0], -DIRS[d][1]); // (sinθ, -cosθ) =
 
 const v3 = () => new THREE.Vector3();
 const tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3();
+
 
 /* ---------- cutting a box in two (convex clip; returns two closed meshes with caps) ---------- */
 function splitBox(h, n, d) {
@@ -130,13 +133,17 @@ export class Game {
     this.bot = /[?&]bot=1/.test(location.search); // test player: slices everything by itself (screen only)
     this.desktop = { aim: new THREE.Vector3(0, 1.1, BEAT_Z) };
     this.palette = 'normal';
+    this.style = 'saber'; this.mods = {}; this.modMult = 1;
     this._buildWorld();
     this._buildSabers();
     this._buildPools();
     this._buildHud();
+    this.styles = { ride: new RideStyle(this), shoot: new ShootStyle(this) };
     this.calibrateHeight();
     this.resetRun();
   }
+  get sx() { return this.styles[this.style] || null; }
+  hitZ() { return this.style === 'ride' ? this.styles.ride.HIT_Z : BEAT_Z; }
 
   /* ================= world ================= */
   _buildWorld() {
@@ -263,7 +270,8 @@ export class Game {
         g.kind = 'hand'; pose = true;
       }
     } else if (src.gripSpace) {
-      const gp = frame.getPose(src.gripSpace, ref);
+      // pistols point along the controller's aiming ray (comfortable wrist angle); sabers and orbs use the grip
+      const gp = frame.getPose(this.style === 'shoot' && src.targetRaySpace ? src.targetRaySpace : src.gripSpace, ref);
       if (gp) { this._m.fromArray(gp.transform.matrix); g.kind = 'controller'; pose = true; }
     }
     if (!pose) return false;
@@ -377,36 +385,65 @@ export class Game {
     this.hud.rotation.set(-0.35, 0.55, 0, 'YXZ');
     this.scene.add(this.hud);
     this.hudDirty = true; this.hudLast = 0; this.message = ''; this.messageUntil = 0;
+    // energy bar: under the notes, in front of you
+    this.energyBar = new THREE.Group();
+    const bw = 1.5, bh = 0.045;
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(bw + 0.03, bh + 0.03), new THREE.MeshBasicMaterial({ color: 0x0a0418, transparent: true, opacity: 0.8, fog: false, depthWrite: false }));
+    const fillGeo = new THREE.PlaneGeometry(bw, bh); fillGeo.translate(bw / 2, 0, 0);
+    this.energyFill = new THREE.Mesh(fillGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false, depthWrite: false }));
+    this.energyFill.position.set(-bw / 2, 0, 0.002);
+    const mid = new THREE.Mesh(new THREE.PlaneGeometry(0.006, bh + 0.03), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, fog: false }));
+    mid.position.z = 0.004;
+    this.energyBar.add(back, this.energyFill, mid);
+    this.energyBar.rotation.x = -0.35;
+    this.scene.add(this.energyBar);
   }
 
   /* ================= run state ================= */
   resetRun() {
-    this.run = { score: 0, combo: 0, maxCombo: 0, hits: 0, misses: 0, perfects: 0, supers: 0, mines: 0, walls: 0, total: 0, errs: [] };
+    const E = ENERGY[this.style] || ENERGY.saber;
+    this.run = { score: 0, combo: 0, maxCombo: 0, hits: 0, misses: 0, perfects: 0, supers: 0, mines: 0, walls: 0, bullets: 0, whips: 0, total: 0, errs: [], energy: E.start, failed: false, zeroed: false };
+    this.failT = 0;
     for (const n of this.active) this._release(n);
+    if (this.styles) for (const k of Object.keys(this.styles)) this.styles[k].reset();
     this.active = []; this.hudDirty = true;
     this.inWall = false;
   }
 
   setPlayer(p) { this.player = p; }
-  speed() { return SPEED[this.difficulty] || 10; }
+  speed() {
+    const m = this.mods.fast ? 1.25 : this.mods.slow ? 0.75 : 1;
+    if (this.style === 'shoot') return this.styles.shoot.walkSpeed(this.difficulty) * m;
+    return (SPEED[this.difficulty] || 10) * (this.style === 'ride' ? 0.85 : 1) * m;
+  }
   leadMs() { return (SPAWN_DIST / this.speed()) * 1000; }
 
-  loadTrack(track, tempo, difficulty) {
+  loadTrack(track, tempo, difficulty, { style = 'saber', mods = {} } = {}) {
+    for (const n of this.active) this._release(n);
+    this.active = [];
+    this.style = this.styles[style] ? style : 'saber';
+    this.mods = activeMods(mods, this.style); this.modMult = modMultiplier(mods, this.style);
     this.track = track; this.tempo = tempo; this.difficulty = difficulty; this._lastPos = undefined;
     this.paused = false; // a new song never starts paused (Restart / Next song from the pause menu)
     this.resetRun();
     this._regen();
     this.calibrateHeight();
     this.mode = 'play';
-    this.flash(tempo.source === 'default' ? 'Tempo is a guess: tap A/X (or T) on the beat to lock it' : `${Math.round(tempo.bpm)} BPM${tempo.source === 'lookup' ? ` (${tempo.from})` : ''} · ${difficulty.toUpperCase()}`, 4000);
+    this.flash(tempo.source === 'default' ? 'Tempo is a guess: tap A/X (or T) on the beat to lock it' : `${Math.round(tempo.bpm)} BPM${tempo.source === 'lookup' ? ` (${tempo.from})` : ''} · ${difficulty.toUpperCase()}${this.modMult !== 1 ? ` · mods ×${this.modMult}` : ''}`, 4000);
   }
 
   _regen(fromMs = -1) {
     this.sections = (this.track && (this.track.sections || this.structure)) || [];
-    const { items, notes } = generate(this.track, this.tempo, this.difficulty, { sections: this.sections, beats: this.beats, shiftMs: this.shiftMs || 0 });
+    let { items } = generate(this.track, this.tempo, this.difficulty, { sections: this.sections, beats: this.beats, shiftMs: this.shiftMs || 0 });
+    if (this.mods.noWalls) items = items.filter((n) => n.type !== 'wall');
+    if (this.sx) items = this.sx.convert(items, { tempo: this.tempo, difficulty: this.difficulty, seed: this.track.id, mods: this.mods });
+    else {
+      if (this.mods.noMines) items = items.filter((n) => n.type !== 'mine');
+      if (this.mods.noArrows) items = items.map((n) => (n.type === 'note' ? { ...n, dir: 'A' } : n));
+    }
     this.items = fromMs < 0 ? items : items.filter((n) => n.t > fromMs + 100);
     this.nextItem = 0;
-    this.run.total = notes;
+    this.run.total = items.filter((n) => n.scored !== false && n.type !== 'wall' && n.type !== 'mine').length;
   }
 
   retime(tempo) {
@@ -421,6 +458,8 @@ export class Game {
     this.headY = this.r.xr.isPresenting ? p.y : 1.6;
     this.rowY = [0, 1, 2].map((k) => Math.max(0.45, this.headY - 1.05) + k * ROW);
     this.hud.position.set(-1.75, this.headY - 0.55, -2.2);
+    if (this.style === 'shoot') this.energyBar.position.set(0, this.headY - 0.8, -2);
+    else this.energyBar.position.set(0, Math.max(0.2, this.rowY[0] - 0.36), this.hitZ() - 1.9);
     for (const ring of this.rings) ring.position.y = 0;
   }
 
@@ -432,7 +471,7 @@ export class Game {
   /* ================= per frame ================= */
   update(dt) {
     const now = performance.now();
-    const playing = this.mode === 'play' && this.track && this.player && this.player.playing;
+    const playing = this.mode === 'play' && this.track && this.player && this.player.playing && !this.run.failed;
     const pos = this.songPos();
     if (!this.r.xr.isPresenting) { // screen: step back during a song so the whole grid is in view
       const z = this.mode === 'play' ? 1.5 : 0;
@@ -453,16 +492,26 @@ export class Game {
     if (playing) {
       while (this.nextItem < this.items.length && this.items[this.nextItem].t - pos < lead) {
         const n = this.items[this.nextItem++];
-        if (n.t - pos < -200 && n.type !== 'wall') continue;
+        if (n.t - pos < -200 && n.type !== 'wall' && !(n.dur && n.t + n.dur > pos + 200)) continue;
         this._spawn(n);
       }
     }
 
     const head = this.camera.getWorldPosition(v3());
     let headInWall = false;
+    const sx = this.sx;
     for (let i = this.active.length - 1; i >= 0; i--) {
       const n = this.active[i], m = n.mesh;
       const tt = (n.t - pos) / 1000;
+      if (this.run.failed && n.type !== 'wall') { // failed: everything drops away
+        m.position.y -= dt * (1 + (this.failT * 4)); m.rotation.x += dt * 2;
+        if (m.position.y < -1.5) { this._release(n); this.active.splice(i, 1); }
+        continue;
+      }
+      if (sx && n.type !== 'wall') {
+        if (sx.place(n, tt, pos, dt)) { this._release(n); this.active.splice(i, 1); }
+        continue;
+      }
       if (n.type === 'wall') {
         const zf = -tt * spd, len = (n.dur / 1000) * spd;
         m.position.z = zf - len / 2; m.scale.z = len;
@@ -481,7 +530,7 @@ export class Game {
       m.position.set(n.home.x, n.home.y - (1 - ease) * 0.5, z);
       if (n.type === 'note') {
         m.rotation.z = n.roll + (1 - ease) * Math.PI * 0.75;
-        m.userData.mat.opacity = m.userData.lineMat.opacity = m.userData.markMat.opacity = Math.min(1, age / 0.25);
+        m.userData.mat.opacity = m.userData.lineMat.opacity = m.userData.markMat.opacity = Math.min(1, age / 0.25) * this.ghostFade(z);
       } else {
         m.rotation.set(now / 700 + n.id, now / 900, 0);
       }
@@ -490,8 +539,11 @@ export class Game {
         this._release(n); this.active.splice(i, 1);
       }
     }
-    this._wallCheck(headInWall);
-    if (playing && !this.paused) this._collide(pos);
+    this._wallCheck(headInWall, dt, playing && !this.paused);
+    if (playing && !this.paused) { if (sx) sx.collide(pos, dt); else this._collide(pos); }
+    if (sx) sx.updateFx(dt, pos, playing && !this.paused);
+    if (this.run.failed) this.failT += dt;
+    this._updateEnergyBar(dt);
 
     this._updateWorld(dt, pos);
     this._updateFx(dt);
@@ -499,14 +551,58 @@ export class Game {
     if (this.hudDirty && now - this.hudLast > 80) this._drawHud(pos);
   }
 
-  _wallCheck(inside) {
+  _wallCheck(inside, dt, live) {
+    const E = ENERGY[this.style];
     if (inside && !this.inWall) {
       this.run.walls++; this.run.combo = 0; this.hudDirty = true;
       this._pop('wall', this.camera.getWorldPosition(v3()).add(new THREE.Vector3(0, -0.1, -0.7)));
       for (const s of Object.values(this.sabers)) this._haptic(s, 0.8, 200);
-    }
+      this.energy(E.wall, true);
+    } else if (inside && live) this.energy(E.wallPerSec * dt, false);
     if (inside) this.hurtT = 0.3;
     this.inWall = inside;
+  }
+
+  /* ================= energy, score, fail ================= */
+  /** Change the energy bar. mistake: a miss/hit that ends a One Life run and drains more on Strict. */
+  energy(delta, mistake = delta < 0) {
+    const r = this.run;
+    if (r.failed || !this.track) return;
+    if (delta < 0 && mistake && this.mods.strict) delta *= 1.5;
+    if (delta < 0 && mistake && this.mods.oneLife) delta = -2;
+    r.energy = Math.max(0, Math.min(1, r.energy + delta));
+    this.hudDirty = true;
+    if (r.energy <= 0) {
+      if (this.mods.noFail) { if (!r.zeroed) { r.zeroed = true; this.flash('NO FAIL: score halved from here', 3000); } return; }
+      r.failed = true; this.failT = 0;
+      this.hurtT = 0.6;
+      for (const s of Object.values(this.sabers)) this._haptic(s, 1, 400);
+      this.flash('FAILED', 4000);
+      this.hooks.onFail && this.hooks.onFail();
+    }
+  }
+  /** Add points: × combo multiplier × modifiers, halved after hitting zero on No Fail. */
+  addScore(pts) {
+    this.run.score += Math.round(pts * this.multiplier() * this.modMult * (this.run.zeroed ? 0.5 : 1));
+  }
+  /** Ghost notes: full until 5 m out, gone 2.5 m before the hit point. */
+  ghostFade(z) {
+    if (!this.mods.ghost) return 1;
+    const d = this.hitZ() - z;
+    return Math.max(0, Math.min(1, (d - 2.5) / 2.5));
+  }
+  _updateEnergyBar(dt) {
+    const show = this.mode === 'play' && !!this.track;
+    this.energyBar.visible = show;
+    if (!show) return;
+    const e = this.run.energy;
+    this._eShow = (this._eShow ?? e) + (e - (this._eShow ?? e)) * Math.min(1, dt * 10);
+    this.energyFill.scale.x = Math.max(0.001, this._eShow);
+    const c = this.energyFill.material.color;
+    if (this.run.zeroed) c.setHex(0x8a8a99);
+    else if (e < 0.25) c.setHex((performance.now() % 500) < 250 ? 0xff2244 : 0xff8899);
+    else if (e < 0.5) c.setHex(0xffb347);
+    else c.setHex(0xffffff);
   }
 
   _updateSabers(dt, pos) {
@@ -533,7 +629,7 @@ export class Game {
         g.tracked = true;
       }
       // blade ignites for a song and goes out in menus (the laser pointers take over there)
-      g.on += ((live ? 1 : 0) - g.on) * Math.min(1, dt * 8);
+      g.on += ((live && this.style === 'saber' ? 1 : 0) - g.on) * Math.min(1, dt * 8);
       g.mesh.userData.blade.scale.set(1, 1, Math.max(0.001, g.on));
       g.mesh.userData.blade.visible = g.on > 0.02;
       g.mesh.updateMatrixWorld();
@@ -550,6 +646,9 @@ export class Game {
       while (g.dirHist.length && now - g.dirHist[0].t > 300) g.dirHist.shift();
       g.mesh.userData.glow.material.opacity = 0.45 + Math.min(0.4, g.vel.length() * 0.04);
       this._updateTrail(g, g.tracked && g.on > 0.5);
+      for (const k of Object.keys(this.styles)) this.styles[k].handFrame(g, dt, live && this.style === k);
+      const hilt = this.style === 'saber' || this.mode !== 'play'; // orbs and pistols replace the hilt in a song
+      g.mesh.children[0].visible = g.mesh.children[1].visible = hilt;
     }
   }
 
@@ -569,6 +668,7 @@ export class Game {
 
   /** Screen controls: the saber matching the next cube follows the mouse; the bot slices by itself. */
   _desktopSaber(g, pos) {
+    if (this.sx && this.mode === 'play' && this.sx.desktopHand(g, pos)) return;
     const side = g.hand === 'L' ? -1 : 1;
     const base = new THREE.Vector3(side * 0.28, this.headY - 0.55, -0.1);
     let aim = null;
@@ -636,6 +736,7 @@ export class Game {
       this.active.push({ ...n, mesh, box });
       return;
     }
+    if (this.sx) { const a = this.sx.spawn(n); if (a) this.active.push(a); return; }
     const pool = n.type === 'mine' ? this.mines : this.cubes;
     const mesh = pool.find((m) => !m.visible);
     if (!mesh) return;
@@ -649,7 +750,7 @@ export class Game {
     }
     this.active.push({ ...n, home, roll: n.type === 'note' ? rollFor(n.dir) : 0, mesh, dead: false });
   }
-  _release(n) { if (n.mesh) n.mesh.visible = false; }
+  _release(n) { if (n.mesh) { n.mesh.visible = false; n.mesh.userData.used = false; } }
 
   multiplier() { return Math.min(8, 1 + Math.floor(this.run.combo / 8)); }
 
@@ -694,7 +795,8 @@ export class Game {
     const sp = swing.length();
     const want = new THREE.Vector2(...DIRS[n.dir]);
     const rightSaber = g.hand === n.hand;
-    const rightWay = n.dir === 'A' ? sp > MIN_SWING * 0.6 : sp > MIN_SWING && swing.clone().normalize().dot(want) > DIR_TOL;
+    const tol = this.mods.strict ? 0.71 : DIR_TOL; // Strict: within 45° instead of 60°
+    const rightWay = n.dir === 'A' ? sp > MIN_SWING * 0.6 : sp > MIN_SWING && swing.clone().normalize().dot(want) > tol;
     // cut plane: contains the blade and the swing direction
     const bladeDir = tmpV.subVectors(g.tip, g.base).normalize().clone();
     const vel3 = vHit.lengthSq() > 1e-6 ? vHit.clone().normalize() : new THREE.Vector3(want.x, want.y, 0);
@@ -707,6 +809,7 @@ export class Game {
       this.run.combo = 0; this.run.misses++;
       this._pop(!rightSaber ? 'color' : 'bad', n.mesh.position);
       this._haptic(g, 0.3, 80);
+      this.energy(ENERGY.saber.bad);
       this.hudDirty = true;
       return;
     }
@@ -719,7 +822,8 @@ export class Game {
     this.run.combo++; this.run.hits++;
     if (rating === 'perfect') this.run.perfects++;
     this.run.maxCombo = Math.max(this.run.maxCombo, this.run.combo);
-    this.run.score += pts * this.multiplier();
+    this.addScore(pts);
+    this.energy(ENERGY.saber.hit);
     this._pop(rating, n.mesh.position);
     this._haptic(g, rating === 'perfect' ? 1 : 0.6, 35);
     if (this.hitSounds) this._slash(rating === 'perfect' ? 1 : 0.75);
@@ -752,10 +856,11 @@ export class Game {
     this._burst(m.position, hex, 26, 1.8);
   }
 
-  _miss(n) {
+  _miss(n, p) {
     this.run.combo = 0; this.run.misses++;
-    this._pop('miss', new THREE.Vector3(n.home.x, n.home.y, BEAT_Z + 0.4));
+    this._pop('miss', p || new THREE.Vector3(n.home.x, n.home.y, BEAT_Z + 0.4));
     this.hurtT = 0.15;
+    this.energy((ENERGY[this.style] || ENERGY.saber).miss);
     this.hudDirty = true;
   }
 
@@ -767,6 +872,7 @@ export class Game {
     this._haptic(g, 1, 220);
     this.hurtT = 0.35;
     if (this.hitSounds) this._boom();
+    this.energy(ENERGY.saber.mine);
     this.hudDirty = true;
   }
 
@@ -775,8 +881,11 @@ export class Game {
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
     const p = v3();
-    if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -BEAT_Z), p)) this.desktop.aim.copy(p);
+    this.desktop.ray = ray.ray.clone();
+    if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -this.hitZ()), p)) this.desktop.aim.copy(p);
   }
+  /** Mouse click during a song (pistols fire). */
+  desktopFire() { if (this.sx && this.sx.fire && this.mode === 'play' && !this.paused) this.sx.desktopFire(); }
 
   /* ================= fx ================= */
   _haptic(g, intensity, ms) {
@@ -904,7 +1013,8 @@ export class Game {
     g.fillStyle = grad; g.beginPath(); g.roundRect(mx, my, Math.max(mh, mw * k), mh, 15); g.fill();
     const acc = this.run.hits + this.run.misses ? Math.round((100 * this.run.hits) / (this.run.hits + this.run.misses)) : 100;
     g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = f(700, 20);
-    g.fillText(`${acc}% · ${this.difficulty.toUpperCase()}${this.run.mines ? ` · mines hit ${this.run.mines}` : ''}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
+    const extra = this.style === 'shoot' ? `${this.run.bullets ? ` · shot ${this.run.bullets}×` : ''}${this.run.whips ? ` · whips ${this.run.whips}` : ''}` : `${this.run.mines ? ` · mines hit ${this.run.mines}` : ''}`;
+    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'RIDE', shoot: 'SHOOT' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
     g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = f(700, 26);
     const name = this.track ? `${this.track.name} · ${this.track.artist}` : '';
     g.fillText(name.length > 58 ? name.slice(0, 57) + '…' : name, 32, 180);

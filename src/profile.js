@@ -13,11 +13,21 @@ export function loadStats() {
 function blank() { return { tracks: {}, games: 0, totalScore: 0, bestCombo: 0, hits: 0, misses: 0, supers: 0 }; }
 
 /** Record a finished (or skipped after 30s) song. */
-export function recordRun(track, run) {
+/** Best score for a song in one play style (Slice bests from before styles existed count as Slice). */
+export function bestFor(t, style = 'saber') {
+  if (!t) return 0;
+  if (t.bestBy && t.bestBy[style] !== undefined) return t.bestBy[style];
+  return style === 'saber' ? t.best || 0 : 0;
+}
+
+export function recordRun(track, run, style = 'saber') {
   const s = loadStats();
   const t = s.tracks[track.id] || { name: track.name, artist: track.artist, art: track.art, plays: 0, best: 0, bestCombo: 0, bestAcc: 0 };
   t.name = track.name; t.artist = track.artist; t.art = track.art;
   t.plays++;
+  const prevBest = bestFor(t, style);
+  t.bestBy = t.bestBy || { saber: t.best || 0 };
+  t.bestBy[style] = Math.max(prevBest, run.score);
   t.best = Math.max(t.best, run.score);
   t.bestCombo = Math.max(t.bestCombo, run.maxCombo);
   const acc = run.hits + run.misses ? run.hits / (run.hits + run.misses) : 0;
@@ -27,7 +37,7 @@ export function recordRun(track, run) {
   s.games++; s.totalScore += run.score; s.hits += run.hits; s.misses += run.misses; s.supers += run.supers;
   s.bestCombo = Math.max(s.bestCombo, run.maxCombo);
   localStorage.setItem(STATS, JSON.stringify(s));
-  return { isBest: run.score >= t.best && run.score > 0, track: t };
+  return { isBest: run.score > prevBest && run.score > 0, track: t };
 }
 
 export function clearStats() { localStorage.removeItem(STATS); }

@@ -1,4 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtwdedb';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwtz60fr';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwtz60fr';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -189,48 +190,91 @@ export class Menu {
 
   /* ---------------- fight card (centre) ---------------- */
   _drawCard(g, p) {
+    if (this.modsView) return this._drawMods(g, p);
     const W = p.W, t = this.selected();
     const s = this.api.settings();
     g.textAlign = 'center'; g.textBaseline = 'top';
     g.fillStyle = C.cyan; g.font = FONT(800, 22); g.fillText('SONG CARD', W / 2, 26);
     if (t) {
       const im = art(t.art, () => p.redraw());
-      const A = 250, ax = (W - A) / 2, ay = 66;
+      const A = 190, ax = (W - A) / 2, ay = 62;
       if (im) g.drawImage(im, ax, ay, A, A);
       else {
         const grd = g.createLinearGradient(ax, ay, ax + A, ay + A); grd.addColorStop(0, C.pink); grd.addColorStop(1, '#3a0a6b');
         rr(g, ax, ay, A, A, 20); g.fillStyle = grd; g.fill();
         g.fillStyle = '#fff'; g.font = FONT(900, 90); g.textBaseline = 'middle'; g.fillText('♪', W / 2, ay + A / 2); g.textBaseline = 'top';
       }
-      g.fillStyle = C.text; g.font = FONT(800, 34); g.fillText(fitText(g, t.name, W - 60), W / 2, 334);
-      g.fillStyle = C.muted; g.font = FONT(600, 24); g.fillText(fitText(g, t.artist, W - 60), W / 2, 378);
+      g.fillStyle = C.text; g.font = FONT(800, 32); g.fillText(fitText(g, t.name, W - 60), W / 2, 262);
+      g.fillStyle = C.muted; g.font = FONT(600, 22); g.fillText(fitText(g, t.artist, W - 60), W / 2, 302);
       const info = this.api.trackInfo(t);
-      g.font = FONT(500, 20); g.fillStyle = C.text;
-      g.fillText(`${mmss(t.duration_ms)} · ${info.tempo}`, W / 2, 418);
-      g.fillStyle = /^from|built/.test(info.structure) ? C.gold : C.muted; g.fillText(fitText(g, `Sections: ${info.structure}`, W - 50), W / 2, 446);
+      g.font = FONT(500, 19); g.fillStyle = C.text;
+      g.fillText(`${mmss(t.duration_ms)} · ${info.tempo}`, W / 2, 336);
+      g.fillStyle = /^from|built/.test(info.structure) ? C.gold : C.muted; g.fillText(fitText(g, `Sections: ${info.structure}`, W - 50), W / 2, 362);
       const err = !String(t.id).startsWith('practice') && (this.api.audioError() || (info.lookup ? `Tempo lookup: ${info.lookup}` : ''));
-      if (!err) { g.fillStyle = C.muted; g.fillText(info.best, W / 2, 474); }
+      if (!err) { g.fillStyle = C.muted; g.fillText(info.best, W / 2, 388); }
       else { // audio problem: say what to do, on two lines where the best score would be
         g.fillStyle = '#ff8a8a'; g.font = FONT(600, 17);
         const words = err.split(' '); const lines = ['']; 
         for (const w of words) { const tryL = (lines[lines.length - 1] + ' ' + w).trim(); if (g.measureText(tryL).width > W - 50 && lines[lines.length - 1]) lines.push(w); else lines[lines.length - 1] = tryL; }
-        lines.slice(0, 2).forEach((l, i) => g.fillText(i === 1 && lines.length > 2 ? fitText(g, l + ' ' + lines.slice(2).join(' '), W - 50) : l, W / 2, 470 + i * 21));
+        lines.slice(0, 2).forEach((l, i) => g.fillText(i === 1 && lines.length > 2 ? fitText(g, l + ' ' + lines.slice(2).join(' '), W - 50) : l, W / 2, 386 + i * 21));
       }
     }
+    const style = s.style || 'saber';
+    const sw = (W - 60 - 2 * 8) / 3;
+    Object.keys(STYLES).forEach((k, i) => p.button(`style:${k}`, 30 + i * (sw + 8), 432, sw, 58, STYLES[k].label, { selected: style === k, size: 22 }));
+    g.fillStyle = C.muted; g.font = FONT(500, 16); g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillText(fitText(g, STYLES[style].desc, W - 50), W / 2, 496);
     const diffs = ['easy', 'normal', 'hard', 'extreme', 'maniac'];
     const bw = (W - 60 - 4 * 8) / 5;
-    diffs.forEach((d, i) => p.button(`diff:${d}`, 30 + i * (bw + 8), 516, bw, 64, d.toUpperCase(), { selected: s.difficulty === d, size: 17 }));
-    p.button('autoplay', 30, 596, (W - 70) / 2, 56, `AUTOPLAY ${s.autoplay !== false ? 'ON' : 'OFF'}`, { selected: s.autoplay !== false, size: 20 });
-    p.button('shuffle', 40 + (W - 70) / 2, 596, (W - 70) / 2, 56, `SHUFFLE ${s.shuffle ? 'ON' : 'OFF'}`, { selected: !!s.shuffle, size: 20 });
+    diffs.forEach((d, i) => p.button(`diff:${d}`, 30 + i * (bw + 8), 522, bw, 58, d.toUpperCase(), { selected: s.difficulty === d, size: 17 }));
+    const tw = (W - 60 - 2 * 8) / 3;
+    const nMods = MOD_ORDER.filter((k) => s.mods && s.mods[k] && (!MODS[k].only || MODS[k].only.includes(style))).length;
+    p.button('autoplay', 30, 592, tw, 56, `AUTOPLAY ${s.autoplay !== false ? 'ON' : 'OFF'}`, { selected: s.autoplay !== false, size: 18 });
+    p.button('shuffle', 38 + tw, 592, tw, 56, `SHUFFLE ${s.shuffle ? 'ON' : 'OFF'}`, { selected: !!s.shuffle, size: 18 });
+    p.button('mods', 46 + tw * 2, 592, tw, 56, nMods ? `MODIFIERS (${nMods})` : 'MODIFIERS', { selected: nMods > 0, size: 18 });
     const busy = this.api.loading && this.api.loading();
     const wake = !busy && t && !String(t.id).startsWith('practice') && this.api.wakeNeeded && this.api.wakeNeeded();
-    if (wake) p.button('wake', 30, 676, W - 60, 110, 'OPEN SPOTIFY', { style: 'primary', size: 40, color: '#1ed760' });
-    else p.button('fight', 30, 676, W - 60, 110, busy || (t ? 'PLAY!' : 'PICK A SONG'), { style: 'primary', size: busy ? 30 : 44, color: busy ? '#8a5cff' : undefined });
+    if (wake) p.button('wake', 30, 664, W - 60, 116, 'OPEN SPOTIFY', { style: 'primary', size: 40, color: '#1ed760' });
+    else p.button('fight', 30, 664, W - 60, 116, busy || (t ? 'PLAY!' : 'PICK A SONG'), { style: 'primary', size: busy ? 30 : 44, color: busy ? '#8a5cff' : undefined });
+  }
+
+  /** Modifiers page (replaces the song card until DONE). */
+  _drawMods(g, p) {
+    const W = p.W, s = this.api.settings(), style = s.style || 'saber', mods = s.mods || {};
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    g.fillStyle = C.cyan; g.font = FONT(800, 24); g.fillText(`MODIFIERS · ${STYLES[style].label}`, W / 2, 24);
+    const bw = (W - 60 - 10) / 2, bh = 92;
+    MOD_ORDER.forEach((k, i) => {
+      const m = MODS[k], x = 30 + (i % 2) * (bw + 10), y = 64 + Math.floor(i / 2) * (bh + 8);
+      const applies = !m.only || m.only.includes(style);
+      const on = !!mods[k];
+      p.button(`mod:${k}`, x, y, bw, bh, '', { selected: on && applies, size: 18 });
+      g.textAlign = 'left'; g.textBaseline = 'top';
+      g.fillStyle = applies ? C.text : 'rgba(244,240,255,0.35)'; g.font = FONT(800, 19);
+      g.fillText(fitText(g, `${on ? '●' : '○'} ${m.label}`, bw - 90), x + 14, y + 10);
+      g.textAlign = 'right'; g.font = FONT(700, 16); g.fillStyle = m.mult > 1 ? C.gold : m.mult < 1 ? '#ff8a8a' : C.muted;
+      g.fillText(m.mult === 1 ? '' : `×${m.mult}`, x + bw - 12, y + 12);
+      g.textAlign = 'left'; g.font = FONT(500, 15); g.fillStyle = applies ? C.muted : 'rgba(244,240,255,0.3)';
+      wrap(g, applies ? m.desc : `Not used in ${STYLES[style].label}`, x + 14, y + 40, bw - 24, 19);
+    });
+    const mult = modMultiplier(mods, style);
+    g.textAlign = 'center'; g.fillStyle = mult >= 1 ? C.gold : '#ff8a8a'; g.font = FONT(800, 22); g.textBaseline = 'top';
+    g.fillText(`Score ×${mult}`, W / 2, 666);
+    p.button('mods:clear', 30, 706, (W - 70) / 2, 76, 'ALL OFF', { size: 22 });
+    p.button('mods:done', 40 + (W - 70) / 2, 706, (W - 70) / 2, 76, 'DONE', { style: 'primary', size: 28 });
   }
 
   _clickCard(id) {
     const s = this.api.settings();
-    if (id.startsWith('diff:')) this.api.setSetting('difficulty', id.slice(5));
+    if (this.modsView) {
+      if (id.startsWith('mod:')) this.api.setSetting('mods', toggleMod(s.mods, id.slice(4)));
+      else if (id === 'mods:clear') this.api.setSetting('mods', {});
+      else if (id === 'mods:done') this.modsView = false;
+      this.card.redraw(); this.songs.redraw(); return;
+    }
+    if (id === 'mods') this.modsView = true;
+    else if (id.startsWith('style:')) { this.api.setSetting('style', id.slice(6)); this.songs.redraw(); }
+    else if (id.startsWith('diff:')) this.api.setSetting('difficulty', id.slice(5));
     else if (id === 'autoplay') this.api.setSetting('autoplay', s.autoplay === false);
     else if (id === 'shuffle') this.api.setSetting('shuffle', !s.shuffle);
     else if (id === 'fight' && this.selected()) return this.api.onPlay(this.tab, this.sel);
@@ -271,9 +315,15 @@ export class Menu {
     else p.button('login', 30, 528, W - 60, 56, 'LOG IN TO SPOTIFY', { style: 'primary', color: '#1ed760', size: 20 });
     p.button('exit', 30, 600, W - 60, 56, this.api.inVR() ? 'EXIT VR' : 'BACK TO LOBBY', { size: 20 });
     g.fillStyle = C.muted; g.font = FONT(500, 17); g.textAlign = 'left';
+    const st = s.style || 'saber';
+    const how = {
+      saber: ['Slice pink cubes with the left saber, blue with the right', 'Swing the way the arrow points · dots: any way', 'Keep sabers off mines · duck and lean past walls'],
+      ride: ['Touch pink notes with the left hand, blue with the right', 'Green: either hand · gold: both hands together', 'Hold your hand on the rails to the end · dodge walls'],
+      shoot: ['Trigger/pinch fires · shoot enemies on the beat', 'Dodge red bullets (head only) · whip close ones', 'Point a gun at the floor to reload'],
+    }[st];
     const help = this.api.inVR()
-      ? ['Trigger or pinch: select · Stick: scroll', 'Slice pink cubes with the left saber, blue with the right', 'Swing the way the arrow points · dots: any way', 'Keep sabers off mines · duck and lean past walls', 'Pause: B/Y, Meta button, or tap left wrist · A/X: tap the beat']
-      : ['Click: select · Wheel: scroll', 'In game: move the mouse to swing the saber', 'T tap tempo · [ ] nudge the beat', 'Esc pause · N next song', 'Add ?bot=1 to the address to watch a bot play'];
+      ? ['Trigger or pinch: select · Stick: scroll', ...how, 'Pause: B/Y, Meta button, or tap left wrist · A/X: tap the beat']
+      : ['Click: select · Wheel: scroll', st === 'shoot' ? 'In game: mouse aims, click fires' : st === 'ride' ? 'In game: the mouse moves the hand' : 'In game: move the mouse to swing the saber', 'T tap tempo · [ ] nudge the beat', 'Esc pause · N next song', 'Add ?bot=1 to the address to watch a bot play'];
     const diag = this.api.headsetAudio && this.api.headsetAudio();
     (diag ? [fitText(g, `Headset audio: ${diag}`, W - 50), ...help.slice(0, 4)] : help).forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
     g.textAlign = 'right'; g.fillStyle = 'rgba(244,240,255,0.35)'; g.font = FONT(500, 15); g.fillText(`build ${this.api.build()}`, W - 24, 26);
@@ -365,11 +415,15 @@ export class Menu {
     if (!r) return;
     g.textAlign = 'center'; g.textBaseline = 'top';
     g.fillStyle = C.muted; g.font = FONT(600, 22); g.fillText(fitText(g, `${r.track.name} · ${r.track.artist}`, W - 60), W / 2, 26);
-    g.fillStyle = r.rank === 'S' ? C.gold : r.rank === 'A' ? C.cyan : C.pink; g.font = FONT(900, 140); g.fillText(r.rank, W / 2, 56);
-    g.fillStyle = C.text; g.font = FONT(900, 52); g.fillText(r.score.toLocaleString(), W / 2, 206);
+    if (r.failed) { g.fillStyle = '#ff4d6a'; g.font = FONT(900, 110); g.fillText('FAILED', W / 2, 70); }
+    else { g.fillStyle = r.rank === 'S' ? C.gold : r.rank === 'A' ? C.cyan : C.pink; g.font = FONT(900, 140); g.fillText(r.rank, W / 2, 56); }
+    g.fillStyle = C.muted; g.font = FONT(600, 17);
+    g.fillText(fitText(g, `${STYLES[r.style || 'saber'].label} · ${(r.difficulty || '').toUpperCase()}${r.mods && r.mods.length ? ` · ${r.mods.join(', ')}` : ''}${r.zeroed ? ' · energy ran out (No Fail)' : ''}${r.failed ? ` · at ${mmss(r.failedAt || 0)}` : ''}`, W - 60), W / 2, 188);
+    g.fillStyle = C.text; g.font = FONT(900, 52); g.fillText(r.score.toLocaleString(), W / 2, 212);
     if (r.isBest) { g.fillStyle = C.gold; g.font = FONT(800, 22); g.fillText('NEW PERSONAL BEST', W / 2, 266); }
     else if (r.synced) { g.fillStyle = C.muted; g.font = FONT(600, 18); g.fillText(`Beat sync for this song adjusted ${r.synced > 0 ? '+' : ''}${r.synced} ms for next time`, W / 2, 270); }
-    const stats = [['ACCURACY', `${r.accuracy}%`], ['MAX COMBO', r.maxCombo], ['PERFECTS', r.perfects], ['MINES HIT', r.mines || 0]];
+    const last = r.style === 'shoot' ? ['TIMES SHOT', r.bullets || 0] : r.style === 'ride' ? ['WALLS HIT', r.walls || 0] : ['MINES HIT', r.mines || 0];
+    const stats = [['ACCURACY', `${r.accuracy}%`], ['MAX COMBO', r.maxCombo], ['PERFECTS', r.perfects], last];
     const cw = (W - 60) / 4;
     stats.forEach(([k, v], i) => {
       const x = 30 + i * cw + cw / 2;

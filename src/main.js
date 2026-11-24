@@ -1,15 +1,16 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwtwdedb';
-import * as sp from './spotify-api.js?v=mwtwdedb';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtwdedb';
+import * as auth from './spotify-auth.js?v=mwtz60fr';
+import * as sp from './spotify-api.js?v=mwtz60fr';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwtz60fr';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtwdedb';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtwdedb';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtwdedb';
-import { Game } from './game.js?v=mwtwdedb';
-import { Pointers } from './ui3d.js?v=mwtwdedb';
-import { Menu } from './menu3d.js?v=mwtwdedb';
-import * as prof from './profile.js?v=mwtwdedb';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwtz60fr';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwtz60fr';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwtz60fr';
+import { Game } from './game.js?v=mwtz60fr';
+import { modLabels } from './mods.js?v=mwtz60fr';
+import { Pointers } from './ui3d.js?v=mwtz60fr';
+import { Menu } from './menu3d.js?v=mwtz60fr';
+import * as prof from './profile.js?v=mwtz60fr';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -23,7 +24,7 @@ renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 document.body.prepend(renderer.domElement);
 
-const game = new Game(renderer, { onTap: () => tapTempo(), onPause: () => pause() });
+const game = new Game(renderer, { onTap: () => tapTempo(), onPause: () => pause(), onFail: () => onFail() });
 const pointers = new Pointers(renderer, game.scene, game.camera, game.rig);
 const tapper = new TapTempo();
 addEventListener('resize', () => {
@@ -49,7 +50,7 @@ const menu = new Menu(game.scene, pointers, {
   searchState: () => S.search,
   onSearch: (q, now) => runSearch(q, now),
   loggedIn: () => auth.isLoggedIn(),
-  best: (id) => { const t = prof.loadStats().tracks[id]; return t ? t.best : 0; },
+  best: (id) => prof.bestFor(prof.loadStats().tracks[id], settings.style || 'saber'),
   settings: () => settings,
   setSetting: (k, v) => {
     settings[k] = v; saveSettings();
@@ -67,7 +68,7 @@ const menu = new Menu(game.scene, pointers, {
     return {
       tempo: `${Math.round(tempo.bpm)} BPM ${{ known: '', tapped: '(tapped)', lookup: `(${tempo.from})`, default: bpmPending.has(t.id) ? '(looking up…)' : '(guess: tap A/X in game)' }[tempo.source]}`,
       structure: structPending.has(t.id) ? 'looking up…' : structureSummary(t, tempo.bpm) || 'not looked up yet',
-      best: st ? `Best ${st.best.toLocaleString()} · played ${st.plays}×` : 'Not played yet',
+      best: st ? `Best ${prof.bestFor(st, settings.style || 'saber').toLocaleString()} (${{ saber: 'Slice', ride: 'Ride', shoot: 'Shoot' }[settings.style || 'saber']}) · played ${st.plays}×` : 'Not played yet',
       lookup: tempo.source === 'default' && !bpmPending.has(t.id) ? lookupDiag(t.id) : '',
     };
   },
@@ -410,7 +411,8 @@ async function startTrack(track) {
       await player.play(track);
     }
     S.maxPos = 0; S.ending = false; tapper.reset();
-    game.loadTrack(track, tempo0, settings.difficulty || 'normal');
+    game.loadTrack(track, tempo0, settings.difficulty || 'normal', { style: settings.style || 'saber', mods: settings.mods || {} });
+    hint.textContent = { saber: 'Esc: pause · Move the mouse to slice · T: tap tempo', ride: 'Esc: pause · The mouse moves the hand · T: tap tempo', shoot: 'Esc: pause · Mouse aims, click fires · T: tap tempo' }[game.style];
     S.state = 'play'; game.paused = false; menu.show('hidden');
   } catch (e) {
     let msg = e.message;
@@ -426,20 +428,30 @@ async function startTrack(track) {
 
 function rankFor(acc) { return acc >= 95 ? 'S' : acc >= 85 ? 'A' : acc >= 70 ? 'B' : acc >= 50 ? 'C' : 'D'; }
 
-function finishTrack(ended, skipToNext = false) {
+/** Energy ran out: let the notes fall away for a moment, then show the results. */
+function onFail() {
+  if (S.state !== 'play') return;
+  S.failedAt = S.player ? S.player.positionMs() : 0;
+  setTimeout(() => { if (game.run.failed && game.track) finishTrack(false, false, true); }, 1600);
+}
+
+function finishTrack(ended, skipToNext = false, failed = false) {
   if (S.ending || !game.track) return;
   S.ending = true;
-  const r = game.run, track = game.track;
+  const r = game.run, track = game.track, style = game.style;
   const played = (S.player ? S.player.positionMs() : 0) > 30000;
   let isBest = false;
-  if (ended || played) isBest = prof.recordRun(track, r).isBest;
+  if (!failed && (ended || played)) isBest = prof.recordRun(track, r, style).isBest;
   const accuracy = r.hits + r.misses ? Math.round((100 * r.hits) / (r.hits + r.misses)) : 0;
-  const synced = learnSync(track, r.errs);
+  const synced = failed ? 0 : learnSync(track, r.errs);
   if (skipToNext) { startNext(); return; }
   if (S.player && (S.player.playing || S.player.soft)) S.player.pause().catch(() => {});
-  S.result = { track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, mines: r.mines, isBest, synced };
+  S.result = {
+    track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, mines: r.mines, walls: r.walls, bullets: r.bullets, isBest, synced,
+    failed, failedAt: S.failedAt, zeroed: r.zeroed, style, difficulty: game.difficulty, mods: modLabels(game.mods, style),
+  };
   game.stop(); S.state = 'results';
-  S.nextAt = settings.autoplay !== false && S.queue.length > 1 ? performance.now() + 6000 : 0;
+  S.nextAt = !failed && settings.autoplay !== false && S.queue.length > 1 ? performance.now() + 6000 : 0; // after a fail you pick: replay or next
   menu.show('results');
 }
 
@@ -456,7 +468,7 @@ function toSelect() {
 }
 
 function pause() {
-  if (S.state !== 'play') return;
+  if (S.state !== 'play' || game.run.failed) return;
   const p = S.player;
   if (p && p.softPause && p.device && p.device.supports_volume !== false && settings.softPause !== false) {
     // keep Spotify running at volume 0 so the Quest doesn't put the Spotify app to sleep
@@ -578,6 +590,7 @@ canvas.addEventListener('pointermove', (e) => {
 });
 canvas.addEventListener('pointerdown', (e) => {
   if (S.state !== 'play') pointers.desktopClick();
+  else game.desktopFire();
 });
 canvas.addEventListener('wheel', (e) => { pointers.desktopWheel(Math.sign(e.deltaY) * 1.5); }, { passive: true });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
