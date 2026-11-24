@@ -1,4 +1,5 @@
-import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwuzhn2x';
+import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwv1noun';
+import { fetchBeatSaver } from './beatsaver.js?v=mwv1noun';
 // Song structure without touching Spotify's audio. Three public sources, combined into one energy
 // curve (how intense each moment is) plus, where possible, the real beat positions:
 //
@@ -6,6 +7,8 @@ import { getJson, matches, timeout, abDocs } from './bpm.js?v=mwuzhn2x';
 //                          vocal pace, long silences. The lyrics themselves are never stored or shown.
 //   osu! maps              how busy mappers made each part, "break" periods (silence), "kiai"
 //                          (chorus) markers; beat timing only from ranked maps (reviewed timing).
+//   BeatSaver maps         (Beat Saber, what BMBF downloads) where a well-rated human mapper put notes:
+//                          busy and calm parts, silences. Quality bar in beatsaver.js.
 //   AcousticBrainz         every beat's timestamp (songs analysed up to ~2022): exact beat
 //                          positions and tempo changes.
 //
@@ -170,17 +173,19 @@ export function lookupStructure(track) {
   if (!track || !track.id || track.sections || String(track.id).startsWith('practice')) return Promise.resolve(false);
   const hit = read()[track.id];
   const retryAb = hit && hit.abRetry && Date.now() - (hit.at || 0) > 60000; // AcousticBrainz/MusicBrainz was unreachable
-  if (hit && hit.v === 2 && !retryAb && (hit.any || Date.now() - (hit.at || 0) < RETRY_MISS_MS)) return Promise.resolve(!!hit.any);
+  if (hit && hit.v === 3 && !retryAb && (hit.any || Date.now() - (hit.at || 0) < RETRY_MISS_MS)) return Promise.resolve(!!hit.any);
   if (inflight.has(track.id)) return inflight.get(track.id);
   const job = (async () => {
     const cap = (p) => Promise.race([p, timeout(10000)]).catch(() => null);
     let abFailed = false;
-    const [lines, osu, ab] = await Promise.all([cap(fetchLyrics(track)), cap(fetchOsu(track)),
+    const [lines, osu, bs, ab] = await Promise.all([cap(fetchLyrics(track)), cap(fetchOsu(track)),
+      Promise.race([fetchBeatSaver(track), timeout(25000)]).catch(() => null),
       Promise.race([fetchAcousticBrainz(track), timeout(12000)]).catch(() => { abFailed = true; return null; })]);
-    const entry = { v: 2, at: Date.now(), any: !!(lines || osu || ab) };
+    const entry = { v: 3, at: Date.now(), any: !!(lines || osu || bs || ab) };
     if (abFailed) entry.abRetry = true;
     if (lines) { entry.lines = lines; entry.src = 'lrclib'; }
     if (osu) entry.osu = osu;
+    if (bs) entry.bs = bs;
     if (ab) entry.ab = ab;
     const db = read(); db[track.id] = entry;
     if (!writeSafe(db)) { const keys = Object.keys(db).sort((a, b) => (db[a].at || 0) - (db[b].at || 0)); keys.slice(0, keys.length >> 1).forEach((k) => delete db[k]); db[track.id] = entry; writeSafe(db); }
@@ -230,6 +235,15 @@ export function analyze(track, bpm) {
       });
     });
     signals.push({ w: 0.35, name: 'osu!', v: Array.from({ length: B }, (_, i) => maps.reduce((s, m) => s + m[i], 0) / maps.length) });
+  }
+  if (c.bs) { // BeatSaver: a well-rated mapper's note density; long gaps = quiet or a vocal break
+    const m = c.bs, p90 = pct(m.dens, 0.9) || 1;
+    signals.push({ w: 0.4, name: 'BeatSaver', v: Array.from({ length: B }, (_, i) => {
+      const t = i * BIN + BIN / 2;
+      if (t < m.first - 1000 || t > m.last + 3000) return 0.1;
+      if (m.gaps.some(([a, b]) => t >= a && t < b)) return 0.25;
+      return Math.min(1, (m.dens[i] || 0) / p90);
+    }) });
   }
   if (c.ab && Array.isArray(c.ab.loud)) { // per-beat loudness (only if a source ever provides it)
     const sum = new Array(B).fill(0), n = new Array(B).fill(0);

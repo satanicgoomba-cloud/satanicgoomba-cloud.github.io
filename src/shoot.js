@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { COLORS, ENERGY } from './shared.js?v=mwuzhn2x';
-import { VoxelBody } from './voxels.js?v=mwuzhn2x';
-import { WEAPONS, ORDER, weaponModel, WeaponTable } from './armory.js?v=mwuzhn2x';
+import { COLORS, ENERGY } from './shared.js?v=mwv1noun';
+import { VoxelBody } from './voxels.js?v=mwv1noun';
+import { WEAPONS, ORDER, weaponModel, WeaponTable } from './armory.js?v=mwv1noun';
 
 // SHOOT style: a pistol in each hand while the track carries you forward. Enemies step out ahead;
 // shoot each one on its beat (points for timing and for aim), dodge the bullets of the ones you

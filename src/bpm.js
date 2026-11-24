@@ -2,13 +2,15 @@
 // at once and keep the BPM most of them agree on. Results are saved per song, so replays load instantly.
 //
 //   Deezer (by ISRC, then by artist+title)      catalogue BPM, often blank
-//   BeatSaver  (Beat Saber community maps)       BPM set by the mapper: exact
+//   BeatSaver  (Beat Saber community maps)       BPM set by the mapper: exact (well-rated maps only)
 //   osu! (osu.direct mirror)                     BPM set by the mapper: exact
 //   AcousticBrainz (via MusicBrainz ISRC)        BPM from audio analysis (to ~2022)
 //
 // Only song identifiers (ISRC, or artist + title) are sent. Deezer only offers JSONP (it answers with
 // a script), so Deezer runs inside a sandboxed iframe with an opaque origin: its script can't reach
 // this page, its storage or the Spotify login. The other services allow normal browser requests.
+
+import { goodMap } from './beatsaver.js?v=mwv1noun';
 
 const CACHE = 'bb.bpmdb';
 const RETRY_MISS_MS = 3 * 24 * 3600e3; // try songs with no match again after 3 days
@@ -105,7 +107,7 @@ async function srcDeezer(t) {
 async function srcBeatSaver(t) {
   const q = encodeURIComponent(`${firstArtist(t.artist)} ${norm(t.name)}`);
   const d = await getJson(`https://api.beatsaver.com/search/text/0?q=${q}&sortOrder=Relevance`);
-  return (d.docs || []).filter((x) => x.metadata && matches(t, x.metadata.songName, x.metadata.songAuthorName, x.metadata.duration))
+  return (d.docs || []).filter((x) => goodMap(x) && matches(t, x.metadata.songName, x.metadata.songAuthorName, x.metadata.duration))
     .slice(0, 3).map((x) => ({ bpm: x.metadata.bpm, src: 'BeatSaver', w: 2 }));
 }
 async function srcOsu(t) {
