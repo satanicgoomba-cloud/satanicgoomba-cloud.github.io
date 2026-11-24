@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwu4cygh';
-import { activeMods, modMultiplier } from './mods.js?v=mwu4cygh';
-import { RideStyle } from './ride.js?v=mwu4cygh';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwu4cygh';
-import { ShootStyle } from './shoot.js?v=mwu4cygh';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwu4gc5n';
+import { activeMods, modMultiplier } from './mods.js?v=mwu4gc5n';
+import { RideStyle } from './ride.js?v=mwu4gc5n';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwu4gc5n';
+import { ShootStyle } from './shoot.js?v=mwu4gc5n';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)

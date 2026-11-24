@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { COLORS, ENERGY } from './shared.js?v=mwu4cygh';
+import { COLORS, ENERGY } from './shared.js?v=mwu4gc5n';
 
 // SHOOT style: a pistol in each hand while the track carries you forward. Enemies step out ahead;
 // shoot each one on its beat (points for timing and for aim), dodge the bullets of the ones you
 // leave standing (only your head can be hit), and whip the close ones with the gun itself, which
-// also reloads it and restores energy. Point a gun at the floor to reload.
+// also reloads it and restores energy. Squeeze the grip (or point a gun at the floor) to reload: the old magazine drops out.
 
 const WALK = { easy: 2.4, normal: 2.8, hard: 3.2, extreme: 3.6, maniac: 4 }; // m/s along the track
 const STEP = { easy: -1, normal: 0, hard: 1, extreme: 2, maniac: 3 };
@@ -12,6 +12,7 @@ const SLIDE_S = 0.45, SLIDE_M = 2.2; // entrance: slides this far in from its si
 const APPEAR_MS = 2600;      // enemies step out this long before their beat
 const FIRE_MS = 650;         // an enemy still standing this long after its beat shoots at you
 const MAG = 12;
+const MAG_LIFE = 2.2;          // a dropped magazine lies on the floor this long, fading out over the last second
 const VISOR = { 1: 0xff2244, 2: 0xff8a1f, 4: 0xffe14d };
 
 function rng(seedStr) {
@@ -47,10 +48,14 @@ export class ShootStyle {
       laser.rotation.x = Math.PI / 2; laser.scale.y = 3; laser.position.set(0, 0.012, -0.15 - 1.5);
       const flash = new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: 0xfff1a8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
       flash.position.set(0, 0.012, -0.17);
+      const magGeo = new THREE.BoxGeometry(0.024, 0.09, 0.036), plateGeo = new THREE.BoxGeometry(0.03, 0.012, 0.044);
+      const magIn = new THREE.Group(); magIn.add(new THREE.Mesh(magGeo, metal));
+      const plate = new THREE.Mesh(plateGeo, new THREE.MeshBasicMaterial({ color: COLORS[h.hand] })); plate.position.y = -0.048; magIn.add(plate);
+      magIn.position.set(0, -0.012, 0); grip.add(magIn);
       gun.add(slide, grip, stripe, ammo, laser, flash);
       gun.visible = false;
       h.mesh.add(gun);
-      h.gun = { mesh: gun, ammo, flash, laser, rounds: MAG, downT: 0, muzzle: new THREE.Vector3(), dir: new THREE.Vector3() };
+      h.gun = { mesh: gun, ammo, flash, laser, magIn, magT: 1, rounds: MAG, downT: 0, muzzle: new THREE.Vector3(), dir: new THREE.Vector3() };
     }
     // enemies
     this.enemies = [];
@@ -90,12 +95,28 @@ export class ShootStyle {
       t.visible = false; s.add(t); this.tracers.push(t);
     }
     this.tracerNext = 0;
+    // dropped magazines: fall out of the grip, bounce on the floor, fade away
+    this.mags = [];
+    for (let i = 0; i < 8; i++) {
+      const m = new THREE.Group();
+      const body = new THREE.MeshStandardMaterial({ color: 0x23202e, metalness: 0.85, roughness: 0.3, transparent: true });
+      const plateM = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
+      m.add(new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.09, 0.036), body));
+      const pl = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.012, 0.044), plateM); pl.position.y = -0.048; m.add(pl);
+      m.visible = false; m.userData = { body, plateM, vel: new THREE.Vector3(), spin: new THREE.Vector3(), life: 0 };
+      s.add(m); this.mags.push(m);
+    }
+    this._q = new THREE.Quaternion();
     // controller trigger / hand pinch fires
     game.r.xr.addEventListener('sessionstart', () => {
       const session = game.r.xr.getSession();
       session.addEventListener('selectstart', (e) => {
         const hand = e.inputSource.handedness === 'left' ? 'L' : e.inputSource.handedness === 'right' ? 'R' : null;
         if (hand && this.live()) this.fire(game.sabers[hand]);
+      });
+      session.addEventListener('squeezestart', (e) => { // side grip: reload
+        const hand = e.inputSource.handedness === 'left' ? 'L' : e.inputSource.handedness === 'right' ? 'R' : null;
+        if (hand && this.live()) this.reload(game.sabers[hand]);
       });
     });
     this._v = new THREE.Vector3(); this._v2 = new THREE.Vector3();
@@ -108,7 +129,8 @@ export class ShootStyle {
     for (const m of this.enemies) { m.visible = false; m.userData.used = false; }
     for (const b of this.bullets) b.visible = false;
     for (const t of this.tracers) t.visible = false;
-    for (const h of Object.values(this.g.sabers)) if (h.gun) h.gun.rounds = MAG;
+    for (const m of this.mags) m.visible = false;
+    for (const h of Object.values(this.g.sabers)) if (h.gun) { h.gun.rounds = MAG; h.gun.magT = 1; }
   }
   assist() { const m = this.g.mods; return THREE.MathUtils.degToRad(m.strict ? 4 : m.bigTargets ? 9 : 6); }
 
@@ -273,7 +295,7 @@ export class ShootStyle {
     for (const h of Object.values(g.sabers)) {
       const gun = h.gun; if (!gun || !h.tracked) continue;
       gun.downT = gun.dir.y < -0.8 ? gun.downT + dt : 0;
-      if (gun.downT > 0.08 && gun.rounds < MAG) { gun.rounds = MAG; g._haptic(h, 0.4, 40); if (g.hitSounds) this._click(); }
+      if (gun.downT > 0.08 && gun.rounds < MAG) this.reload(h);
     }
     // enemy bullets vs your head
     for (const b of this.bullets) {
@@ -290,7 +312,40 @@ export class ShootStyle {
     }
   }
 
+  /** Fresh magazine: the old one drops out of the grip and a new one slides in. */
+  reload(h) {
+    const g = this.g, gun = h.gun;
+    if (!gun || gun.rounds >= MAG || gun.magT < 1) return false;
+    gun.rounds = MAG; gun.magT = 0;
+    g._haptic(h, 0.4, 40); if (g.hitSounds) this._click();
+    const m = this.mags.find((x) => !x.visible) || this.mags.reduce((a, b) => (a.userData.life < b.userData.life ? a : b));
+    const u = m.userData;
+    gun.mesh.updateMatrixWorld();
+    gun.magIn.getWorldPosition(m.position); gun.magIn.getWorldQuaternion(m.quaternion);
+    const down = new THREE.Vector3(0, -1, 0).applyQuaternion(m.quaternion);   // out of the bottom of the grip
+    u.vel.copy(down).multiplyScalar(1.2).addScaledVector(h.vel || new THREE.Vector3(), 0.5);
+    u.spin.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 8);
+    u.life = MAG_LIFE; u.body.opacity = u.plateM.opacity = 1; u.plateM.color.setHex(COLORS[h.hand]);
+    m.visible = true;
+    return true;
+  }
+
   updateFx(dt) {
+    const slide = this.g.mode === 'play' && !this.g.paused ? this.g.speed() : 0; // the floor rolls by as you walk
+    for (const m of this.mags) {
+      if (!m.visible) continue;
+      const u = m.userData;
+      u.life -= dt; u.vel.y -= 9.8 * dt;
+      m.position.addScaledVector(u.vel, dt); m.position.z += slide * dt;
+      if (m.position.y < 0.02) { // bounce, then settle
+        m.position.y = 0.02; u.vel.y = Math.abs(u.vel.y) > 0.6 ? -u.vel.y * 0.35 : 0;
+        u.vel.x *= 0.6; u.vel.z *= 0.6; u.spin.multiplyScalar(0.5);
+      }
+      const ang = u.spin.length();
+      if (ang > 1e-3) m.quaternion.premultiply(this._q.setFromAxisAngle(this._v2.copy(u.spin).divideScalar(ang), ang * dt));
+      u.body.opacity = u.plateM.opacity = Math.min(1, u.life / 1);
+      if (u.life <= 0) m.visible = false;
+    }
     for (const b of this.bullets) {
       if (!b.visible) continue;
       b.position.addScaledVector(b.userData.vel, dt);
@@ -307,6 +362,9 @@ export class ShootStyle {
     gun.mesh.updateMatrixWorld();
     gun.muzzle.set(0, 0.012, -0.16).applyMatrix4(gun.mesh.matrixWorld);
     gun.dir.set(0, 0, -1).transformDirection(gun.mesh.matrixWorld);
+    gun.magT = Math.min(1, gun.magT + dt / 0.3);          // empty grip for a moment, then the new magazine slides up
+    gun.magIn.visible = gun.magT > 0.4;
+    gun.magIn.position.y = -0.012 - 0.07 * (1 - Math.min(1, (gun.magT - 0.4) / 0.6)) ** 2;
     const k = gun.rounds / MAG;
     gun.ammo.scale.z = Math.max(0.01, k); gun.ammo.position.z = -0.03 + 0.06 * (1 - k);
     gun.ammo.material.color.setHex(k > 0.34 ? 0xffffff : k > 0 ? 0xffb347 : 0xff2244);
