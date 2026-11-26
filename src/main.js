@@ -1,19 +1,19 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwwylacw';
-import * as sp from './spotify-api.js?v=mwwylacw';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwwylacw';
+import * as auth from './spotify-auth.js?v=mwwym9aj';
+import * as sp from './spotify-api.js?v=mwwym9aj';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwwym9aj';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { fetchOsu } from './osu.js?v=mwwylacw';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwwylacw';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwwylacw';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwwylacw';
-import { Game } from './game.js?v=mwwylacw';
-import { modLabels } from './mods.js?v=mwwylacw';
-import * as leaks from './leaks.js?v=mwwylacw';
-import * as gdrive from './gdrive.js?v=mwwylacw';
-import { Pointers } from './ui3d.js?v=mwwylacw';
-import { Menu } from './menu3d.js?v=mwwylacw';
-import * as prof from './profile.js?v=mwwylacw';
+import { fetchOsu } from './osu.js?v=mwwym9aj';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwwym9aj';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwwym9aj';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwwym9aj';
+import { Game } from './game.js?v=mwwym9aj';
+import { modLabels } from './mods.js?v=mwwym9aj';
+import * as leaks from './leaks.js?v=mwwym9aj';
+import * as gdrive from './gdrive.js?v=mwwym9aj';
+import { Pointers } from './ui3d.js?v=mwwym9aj';
+import { Menu } from './menu3d.js?v=mwwym9aj';
+import * as prof from './profile.js?v=mwwym9aj';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -938,3 +938,26 @@ $('build').textContent = `build ${BUILD}`;
   if (new URLSearchParams(location.search).has('vr') || (auth.appPackage() === auth.IMMERSIVE_PKG && r !== 'error')) autoEnterVR();
   if (auth.isLoggedIn()) loadSpotify();
 })();
+
+/* ---------------- updates ---------------- */
+// The Quest keeps the game open for days, so it can keep running an old version after an update. Check
+// for a newer build now and then (and when the headset wakes). Outside VR: reload in the lobby. In VR:
+// say so on the song menu (reloading would throw you out of VR).
+let newBuild = null;
+async function checkUpdate() {
+  if (BUILD === 'dev' || newBuild) return;
+  try {
+    const h = await (await fetch(`app.html?t=${Date.now()}`, { cache: 'no-store' })).text();
+    const v = (/main\.js\?v=(\w+)/.exec(h) || [])[1];
+    if (!v || v === BUILD) return;
+    newBuild = v; spLog(`new version ready (${v})`);
+  } catch { return; }
+}
+setInterval(() => {
+  checkUpdate();
+  if (!newBuild) return;
+  if (!inVR() && S.state === 'lobby' && !S.loading) location.reload();
+  else if (inVR() && S.state === 'select' && !S.loading) game.flash('Update ready: exit VR and reopen the game to get it', 6000);
+}, 5 * 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
+checkUpdate();

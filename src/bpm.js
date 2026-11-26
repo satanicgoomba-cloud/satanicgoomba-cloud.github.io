@@ -10,7 +10,7 @@
 // a script), so Deezer runs inside a sandboxed iframe with an opaque origin: its script can't reach
 // this page, its storage or the Spotify login. The other services allow normal browser requests.
 
-import { goodMap } from './beatsaver.js?v=mwwylacw';
+import { goodMap } from './beatsaver.js?v=mwwym9aj';
 
 const CACHE = 'bb.bpmdb';
 const RETRY_MISS_MS = 3 * 24 * 3600e3; // try songs with no match again after 3 days
