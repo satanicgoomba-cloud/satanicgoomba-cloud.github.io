@@ -1,4 +1,4 @@
-import { getAccessToken } from './spotify-auth.js?v=mwwuzuad';
+import { getAccessToken } from './spotify-auth.js?v=mwwylacw';
 
 const API = 'https://api.spotify.com/v1';
 

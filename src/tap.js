@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { ENERGY, COLORS } from './shared.js?v=mwwuzuad';
-import { alignOsu } from './osu.js?v=mwwuzuad';
+import { ENERGY, COLORS } from './shared.js?v=mwwylacw';
+import { alignOsu } from './osu.js?v=mwwylacw';
 const ENERGY_TAP = ENERGY.tap;
 
 // TAP style: a flat playfield floats in front of you. Point the right controller at it (the dot is your
@@ -66,7 +66,14 @@ export class TapStyle {
     this.circles = Array.from({ length: 28 }, () => this._makeCircle());
     this.sliders = Array.from({ length: 8 }, () => this._makeSlider());
     this.spinners = Array.from({ length: 2 }, () => this._makeSpinner());
-    for (const m of [...this.circles, ...this.sliders, ...this.spinners]) s.add(m);
+    this.cards = Array.from({ length: 2 }, () => {
+      const c = document.createElement('canvas'); c.width = 1024; c.height = 340;
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5 * 340 / 1024), basic({ map: tex }));
+      m.renderOrder = 2.5e6; m.visible = false; m.userData = { kind: 'card', canvas: c, tex, key: '' }; s.add(m); return m;
+    });
+    this.swaps = []; this.swapState = {};
+    for (const m of [...this.circles, ...this.sliders, ...this.spinners]) s.add(m); // (cards are added above)
     // follow points (dots leading to the next object)
     this.fp = new THREE.InstancedMesh(this.geo.disc, basic({ color: 0xffffff, opacity: 0.55 }), MAX_FP);
     this.fp.frustumCulled = false; this.fp.count = 0; this.fp.renderOrder = 2e6; s.add(this.fp);
@@ -163,23 +170,25 @@ export class TapStyle {
   holding() { return this.held.size > 0 || this.botHold; }
 
   reset() {
-    for (const m of [...this.circles, ...this.sliders, ...this.spinners]) { m.visible = false; m.userData.used = false; }
+    for (const m of [...this.circles, ...this.sliders, ...this.spinners, ...this.cards]) { m.visible = false; m.userData.used = false; }
+    this.swapState = {};
     this.held.clear(); this.botHold = false; this.fp.count = 0;
   }
 
   /* ---------- map ---------- */
   /** A real osu! map of the song when one was found (and lines up), else one made from the generated beat map. */
   convert(items, { tempo, difficulty, seed, mods = {} }) {
-    this.mapCR = this.mapAR = null; this.source = null;
+    this.mapCR = this.mapAR = null; this.source = null; this.swaps = []; this.swapState = {};
     const om = this.g.track && this.g.track.osu;
     let out = om ? this._fromOsu(om, tempo) : null;
     if (out) this.source = om;
     else out = this._generated(items, { tempo, difficulty, seed });
-    if (mods.twoHands) out = this._handBursts(out, tempo, difficulty, seed);
+    if (mods.twoHands) out = this._handSwaps(out, tempo);
     // where each object's follow points start
     let prev = null;
     for (const o of out) {
-      if (prev && prev.type !== 'spinner' && o.type !== 'spinner' && !o.hand && !prev.hand) {
+      const play = (x) => x.type === 'circle' || x.type === 'slider';
+      if (prev && play(prev) && play(o)) {
         const e = prev.type === 'slider' ? (prev.repeats % 2 ? prev.pts[0] : prev.pts[prev.pts.length - 1]) : prev;
         o.from = { x: e.x, y: e.y, t: prev.t + (prev.dur || 0) };
       }
@@ -229,36 +238,34 @@ export class TapStyle {
   }
 
   /**
-   * SWITCH HANDS: in the loud parts (choruses), a bar of circles at double time that alternate hands:
-   * pink circles need the left controller to aim and its trigger to tap, blue ones the right.
+   * SWITCH HANDS: about every 30 s the aiming passes to your other arm, so one arm can rest. A count-in on
+   * four beats: tap anywhere with the hand you're using now, twice, then with your other hand, twice.
+   * From then on the other controller aims. It goes in a gap in the music when there's one nearby.
    */
-  _handBursts(out, tempo, difficulty, seed) {
-    const r = rng(`${seed}:hands:${difficulty}`), spb = 60000 / tempo.bpm, step = STEP[difficulty] ?? 0;
-    const sub = step <= -1 ? spb : spb / 2, n = step <= -1 ? 4 : 8;
-    const loud = (this.g.sections || []).filter((x) => x.kind === 'chorus' || (x.energy || 0) >= 0.65);
-    const off = (tempo.offsetMs || 0) + (this.g.shiftMs || 0);
-    const bursts = []; let last = -1e9;
-    for (const sec of loud) {
-      if (sec.t1 - sec.t0 < spb * 8) continue;
-      let bs = off + Math.ceil((sec.t0 + spb * 4 - off) / spb) * spb; // a bar into the section, on a beat
-      const be = bs + sub * (n - 1);
-      if (be > sec.t1 - spb || bs - last < 12000) continue;
-      bursts.push(bs); last = bs;
-    }
-    if (!bursts.length) return out;
-    let res = out.slice();
-    for (const bs of bursts) {
-      const be = bs + sub * (n - 1);
-      res = res.filter((o) => o.t + (o.dur || 0) < bs - spb * 0.5 || o.t > be + spb * 0.5);
-      const zig = r() < 0.5 ? 1 : -1;
-      for (let k = 0; k < n; k++) {
-        const hand = k % 2 ? 'R' : 'L', side = hand === 'L' ? -1 : 1, row = Math.floor(k / 2);
-        res.push({ id: 900000 + Math.round(bs) + k, t: Math.round(bs + k * sub), type: 'circle', hand,
-          x: side * (0.45 + row * 0.12 + (r() - 0.5) * 0.08), y: zig * (0.35 - row * 0.23) + (r() - 0.5) * 0.06, num: 0, color: hand === 'L' ? 0 : 1 });
+  _handSwaps(out, tempo) {
+    const spb = 60000 / tempo.bpm, off = (tempo.offsetMs || 0) + (this.g.shiftMs || 0);
+    const onBeat = (t) => off + Math.ceil((t - off) / spb) * spb;
+    const endOf = (o) => o.t + (o.dur || 0);
+    const last = out.length ? endOf(out[out.length - 1]) : 0;
+    let res = out.slice(), hand = 'R';
+    for (let target = 30000; target < last - 10000; target += 30000) {
+      let b0 = null, best = 0; // the widest gap near the target that fits a beat, the four taps and a beat and a half
+      for (let i = 1; i < res.length; i++) {
+        const a = endOf(res[i - 1]), b = res[i].t;
+        if (b < target - 7000 || a > target + 7000) continue;
+        if (b - a >= spb * 6.5 && b - a > best) { best = b - a; b0 = onBeat(a + spb); }
       }
+      if (b0 === null) b0 = onBeat(target);
+      const b3 = b0 + spb * 3, other = hand === 'R' ? 'L' : 'R', group = Math.round(b0);
+      res = res.filter((o) => endOf(o) < b0 - spb || o.t > b3 + spb * 1.5);
+      res.push({ id: 800000 + group * 8, t: Math.round(b0 - spb * 4), type: 'swapcard', scored: false, dur: Math.round(spb * 8.5), group, now: hand, next: other, spb });
+      for (let k = 0; k < 4; k++) res.push({ id: 800001 + group * 8 + k, t: Math.round(b0 + k * spb), type: 'swaptap', hand: k < 2 ? hand : other, group, k });
+      this.swaps.push({ t: Math.round(b3), to: other }); hand = other;
     }
     return res.sort((a, b) => a.t - b.t);
   }
+  /** Which controller aims at song time pos (SWITCH HANDS passes it back and forth). */
+  pointerAt(pos) { let h = 'R'; for (const w of this.swaps) if (w.t <= pos) h = w.to; return h; }
 
   /* ---------- a map made from the generated beat map ---------- */
   _generated(items, { tempo, difficulty, seed }) {
@@ -355,6 +362,12 @@ export class TapStyle {
 
   /* ---------- spawning and drawing ---------- */
   spawn(n) {
+    if (n.type === 'swaptap') return { ...n, mesh: new THREE.Object3D(), judged: false, dead: false };
+    if (n.type === 'swapcard') {
+      const m = this.cards.find((x) => !x.userData.used); if (!m) return null;
+      m.userData.used = true; m.visible = true; m.userData.key = '';
+      return { ...n, mesh: m };
+    }
     const pool = n.type === 'circle' ? this.circles : n.type === 'slider' ? this.sliders : n.type === 'spinner' ? this.spinners : null;
     if (!pool) return null;
     const m = pool.find((x) => !x.userData.used); if (!m) return null;
@@ -403,6 +416,11 @@ export class TapStyle {
   /** Move one item for this frame. Returns true when it's finished with. */
   place(n, tt, pos, dt) {
     const u = n.mesh.userData, A = this.ar(), tms = n.t - pos, W = this.win();
+    if (n.type === 'swaptap') {
+      if (!n.judged && pos > n.t + W[2] * 1.6) this._swapResult(n, null);
+      return n.judged;
+    }
+    if (n.type === 'swapcard') return this._drawCard(n, pos);
     if (n.type === 'circle') {
       if (!n.judged && pos > n.t + W[2]) this._miss(n);
       if (n.judged) {
@@ -472,14 +490,19 @@ export class TapStyle {
   press(key, hand) {
     if (key) this.held.add(key);
     const g = this.g, pos = g.songPos(), W = this.win();
-    let n = null; // only the earliest circle (or slider head) takes a tap
-    for (const x of g.active) if ((x.type === 'circle' || x.type === 'slider') && !x.judged && (!n || x.t < n.t)) n = x;
+    let n = null; // only the earliest circle (or slider head, or count-in tap) takes a tap
+    for (const x of g.active) if ((x.type === 'circle' || x.type === 'slider' || x.type === 'swaptap') && !x.judged && (!n || x.t < n.t)) n = x;
     if (!n) return;
-    // SWITCH HANDS circles need their own hand's pointer and trigger (on a screen the mouse does both)
-    const own = n.hand && this.g.r.xr.isPresenting && hand;
-    if (own && hand !== n.hand) return;
-    const c = own ? this.aim[n.hand] : { ok: this.aimOk, x: this.cursor.x, y: this.cursor.y };
-    if (!c.ok) return;
+    if (n.type === 'swaptap') { // count-in: anywhere, on the beat, with the hand it asks for (any key on a screen)
+      const e = pos - n.t, w = W[2] * 1.6;
+      if (e < -w || (hand && g.r.xr.isPresenting && hand !== n.hand)) return;
+      this._swapResult(n, Math.abs(e) <= W[0] * 1.5 ? 'perfect' : Math.abs(e) <= W[1] * 1.5 ? 'great' : 'good', e / 1000);
+      const h = hand && g.sabers[hand]; if (h) g._haptic(h, 0.7, 30);
+      if (g.hitSounds) g._slash(1.4);
+      return;
+    }
+    if (!this.aimOk) return;
+    const c = this.cursor;
     if (Math.hypot(c.x - n.x, c.y - n.y) > n.R * 1.1) return; // not on it: taps elsewhere are free
     const e = pos - n.t;
     if (e < -W[2]) { if (-e <= EARLY_MISS) { if (n.type === 'circle') this._miss(n); else this._headMiss(n); } return; }
@@ -490,6 +513,51 @@ export class TapStyle {
     if (n.type === 'circle') { this._score(n, rating, e / 1000); n.judged = true; n.hit = 1; return; }
     n.judged = true; n.judgedAt = pos; n.headRating = rating; n.got++; n.headOk = true; n.errS = e / 1000;
     this._combo(30); g._burst(this._world(n.x, n.y), COMBO_COL[n.color], 12, 1);
+  }
+  _swapResult(n, rating, errS) {
+    n.judged = true;
+    (this.swapState[n.group] = this.swapState[n.group] || [])[n.k] = rating ? 'hit' : 'miss';
+    const p = new THREE.Vector3(-0.42 + n.k * 0.28, this.cy() - 0.05, PZ + 0.15);
+    if (rating) this._score({ x: p.x, y: p.y - this.cy(), color: n.hand === 'L' ? 0 : 1 }, rating, errS);
+    else this.g._miss(n, p);
+  }
+  /** The count-in card: four boxes (this hand, this hand, other hand, other hand) that light up on their beats. */
+  _drawCard(n, pos) {
+    const m = n.mesh, u = m.userData, end = n.t + n.dur;
+    if (pos > end) return true;
+    const b0 = n.t + n.spb * 4, st = this.swapState[n.group] || [];
+    const a = clamp((pos - n.t) / 300, 0, 1) * clamp((end - pos) / 400, 0, 1);
+    m.material.opacity = a * (pos < b0 - n.spb ? 0.8 : 1);
+    // small at the top edge while circles are still coming, then in the middle once the field is clear
+    const k = clamp((pos - (b0 - n.spb * 1.3)) / (n.spb * 0.6), 0, 1), e = k * k * (3 - 2 * k);
+    m.position.set(0, this.cy() + (FH + 0.14) * (1 - e) + 0.05 * e, PZ + 0.1); m.scale.setScalar(0.6 + 0.4 * e);
+    const cur = st.length < 4 ? [0, 1, 2, 3].find((k) => !st[k]) : -1;
+    const prog = cur >= 0 ? clamp(1 - (b0 + cur * n.spb - pos) / n.spb, 0, 1) : 1;
+    const count = pos < b0 ? Math.ceil((b0 - pos) / n.spb) : 0;
+    const key = `${st.join()}|${cur}|${Math.round(prog * 12)}|${count}`;
+    if (key === u.key) return false;
+    u.key = key;
+    const g = u.canvas.getContext('2d'), W = 1024, H = 340, name = { L: 'LEFT', R: 'RIGHT' }, hex = { L: '#ff2d6f', R: '#00e5ff' };
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = 'rgba(13,7,32,0.92)'; g.beginPath(); g.roundRect(4, 4, W - 8, H - 8, 28); g.fill();
+    g.strokeStyle = hex[n.next]; g.lineWidth = 5; g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillStyle = '#fff'; g.font = '900 54px Montserrat, system-ui, sans-serif';
+    g.fillText(count ? `SWITCH HANDS IN ${count}` : 'SWITCH HANDS', W / 2, 52);
+    g.fillStyle = 'rgba(244,240,255,0.75)'; g.font = '600 28px Montserrat, system-ui, sans-serif';
+    g.fillText(`Tap anywhere on the beat · then your ${name[n.next]} hand aims`, W / 2, 104);
+    for (let k = 0; k < 4; k++) {
+      const hand = k < 2 ? n.now : n.next, x = 92 + k * 220, y = 140, w = 180, h = 170;
+      g.fillStyle = 'rgba(255,255,255,0.06)'; g.beginPath(); g.roundRect(x, y, w, h, 20); g.fill();
+      if (st[k] === 'hit') { g.fillStyle = hex[hand]; g.globalAlpha = 0.85; g.beginPath(); g.roundRect(x, y, w, h, 20); g.fill(); g.globalAlpha = 1; }
+      else if (k === cur) { g.fillStyle = hex[hand]; g.globalAlpha = 0.25 + 0.35 * prog; g.beginPath(); g.roundRect(x, y + h * (1 - prog), w, h * prog, 20); g.fill(); g.globalAlpha = 1; }
+      g.lineWidth = k === cur ? 6 : 3; g.strokeStyle = st[k] === 'miss' ? '#ff4d4d' : hex[hand]; g.beginPath(); g.roundRect(x, y, w, h, 20); g.stroke();
+      g.fillStyle = st[k] === 'hit' ? '#120a24' : st[k] === 'miss' ? '#ff4d4d' : '#fff';
+      g.font = '900 88px Montserrat, system-ui, sans-serif'; g.fillText(st[k] === 'miss' ? '✕' : hand, x + w / 2, y + 74);
+      g.font = '700 24px Montserrat, system-ui, sans-serif'; g.fillText(name[hand], x + w / 2, y + 140);
+    }
+    u.tex.needsUpdate = true;
+    return false;
   }
   desktopFire() { this.held.add('mouse'); this.press(null); }
   fire() { return true; } // the game sends screen clicks here (see Game.desktopFire)
@@ -567,8 +635,9 @@ export class TapStyle {
       if (n.dead) continue;
       if (n.type === 'slider' && n.judged && pos <= n.t + n.dur) { target = this.at(n.pts, this.prog(n, pos + 10)); this.botHold = true; }
       if (n.type === 'spinner' && pos >= n.t - 100 && pos <= n.t + n.dur) { const a = pos / 1000 * Math.PI * 2 * this.p.spin * 1.5; target = { x: Math.cos(a) * 0.3, y: Math.sin(a) * 0.3 }; this.botHold = true; }
-      if ((n.type === 'circle' || n.type === 'slider') && !n.judged && (!head || n.t < head.t)) head = n;
+      if ((n.type === 'circle' || n.type === 'slider' || n.type === 'swaptap') && !n.judged && (!head || n.t < head.t)) head = n;
     }
+    if (head && head.type === 'swaptap') { if (pos >= head.t - 6) this.press(null); return; }
     if (!target && head) {
       const k = clamp(1 - (head.t - pos) / 350, 0.08, 1);
       target = { x: this.cursor.x + (head.x - this.cursor.x) * k, y: this.cursor.y + (head.y - this.cursor.y) * k };
@@ -598,13 +667,11 @@ export class TapStyle {
     // cursor
     this.cur.visible = this.aimOk; this.cur.position.set(this.cursor.x, this.cy() + this.cursor.y, PZ + 0.02);
     this.cur.userData.ring.scale.setScalar(this.holding() ? 0.038 : 0.045);
-    this.needLeft = g.r.xr.isPresenting && g.active.some((n) => n.hand === 'L' && !n.judged && n.t - pos < A + 400);
-    this.curL.visible = this.needLeft && this.aim.L.ok; this.laserL.visible = (this.needLeft || !this.aim.R.ok) && this.aim.L.ok;
-    if (this.curL.visible) this.curL.position.set(this.aim.L.x, this.cy() + this.aim.L.y, PZ + 0.02);
+    this.cur.userData.ring.material.color.setHex(this.swaps.length ? COLORS[this.pointerAt(pos)] : 0xffe14d);
   }
 
-  /** Aiming: each controller's pointing ray. The right one is the cursor (the left if the right isn't tracked);
-   *  the left one also aims during SWITCH HANDS bursts. */
+  /** Aiming: each controller's pointing ray. The right one is the cursor (the left with SWITCH HANDS after a
+   *  hand-over, or when the right isn't tracked). */
   handFrame(h, dt, live) {
     if (!live) { this.laser.visible = this.laserL.visible = false; return; }
     const g = this.g;
@@ -624,9 +691,10 @@ export class TapStyle {
       const line = h.hand === 'L' ? this.laserL : this.laser, at = line.geometry.attributes.position;
       at.setXYZ(0, this._v.x, this._v.y, this._v.z); at.setXYZ(1, hit.x, hit.y, hit.z); at.needsUpdate = true;
     }
-    const main = this.aim.R.ok && g.sabers.R.tracked ? this.aim.R : this.aim.L;
+    const want = this.pointerAt(g.songPos()), alt = want === 'R' ? 'L' : 'R';
+    const use = this.aim[want].ok && g.sabers[want].tracked ? want : this.aim[alt].ok ? alt : want, main = this.aim[use];
     this.aimOk = main.ok; if (main.ok) this.cursor.set(main.x, main.y);
-    this.laser.visible = this.aim.R.ok && g.sabers.R.tracked;
+    this.laser.visible = use === 'R' && main.ok; this.laserL.visible = use === 'L' && main.ok;
   }
 
   /** Screen: the mouse is the cursor; the sabers rest low out of the way. */
