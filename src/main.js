@@ -1,19 +1,19 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwwz2stm';
-import * as sp from './spotify-api.js?v=mwwz2stm';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwwz2stm';
+import * as auth from './spotify-auth.js?v=mwxyzbwv';
+import * as sp from './spotify-api.js?v=mwxyzbwv';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwxyzbwv';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { fetchOsu } from './osu.js?v=mwwz2stm';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwwz2stm';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwwz2stm';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwwz2stm';
-import { Game } from './game.js?v=mwwz2stm';
-import { modLabels } from './mods.js?v=mwwz2stm';
-import * as leaks from './leaks.js?v=mwwz2stm';
-import * as gdrive from './gdrive.js?v=mwwz2stm';
-import { Pointers } from './ui3d.js?v=mwwz2stm';
-import { Menu } from './menu3d.js?v=mwwz2stm';
-import * as prof from './profile.js?v=mwwz2stm';
+import { fetchOsu } from './osu.js?v=mwxyzbwv';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwxyzbwv';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwxyzbwv';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwxyzbwv';
+import { Game } from './game.js?v=mwxyzbwv';
+import { modLabels } from './mods.js?v=mwxyzbwv';
+import * as leaks from './leaks.js?v=mwxyzbwv';
+import * as gdrive from './gdrive.js?v=mwxyzbwv';
+import { Pointers } from './ui3d.js?v=mwxyzbwv';
+import { Menu } from './menu3d.js?v=mwxyzbwv';
+import * as prof from './profile.js?v=mwxyzbwv';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -53,7 +53,7 @@ S.leaks = new leaks.LeakPlayer(); S.leakList = leaks.list(); S.leakQ = ''; S.lea
 const leakView = () => S.leakQ ? leaks.filter(S.leakList, S.leakQ) : leaks.folderView(S.leakList, S.leakDir);
 function bestLine(t) {
   const st = prof.loadStats().tracks[t.id], style = settings.style || 'saber';
-  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Surf', shoot: 'Shoot', still: 'Stasis', tap: 'Spot' }[style]}) · played ${st.plays}×` : 'Not played yet';
+  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Surf', shoot: 'Shoot', still: 'Stasis', tap: 'Spot', drums: 'Strike' }[style]}) · played ${st.plays}×` : 'Not played yet';
 }
 const inVR = () => renderer.xr.isPresenting;
 
@@ -454,7 +454,7 @@ async function startTrack(track) {
     }
     S.maxPos = 0; S.ending = false; tapper.reset();
     game.loadTrack(track, tempo0, settings.difficulty || 'normal', { style: settings.style || 'saber', mods: settings.mods || {} });
-    hint.textContent = { saber: 'Esc: pause · Move the mouse to slice · T: tap tempo', ride: 'Esc: pause · The mouse moves the hand · T: tap tempo', shoot: 'Esc: pause · Mouse aims, click fires · T: tap tempo', still: 'Esc: pause · Time moves when the mouse moves · click fires', tap: 'Esc: pause · Mouse aims · click or Z/X taps (hold for sliders and spinners)' }[game.style];
+    hint.textContent = { saber: 'Esc: pause · Move the mouse to slice · T: tap tempo', ride: 'Esc: pause · The mouse moves the hand · T: tap tempo', shoot: 'Esc: pause · Mouse aims, click fires · T: tap tempo', still: 'Esc: pause · Time moves when the mouse moves · click fires', tap: 'Esc: pause · Mouse aims · click or Z/X taps (hold for sliders and spinners)', drums: 'Esc: pause · D F J K: drums · R U I: cymbals · Space: kick' }[game.style];
     if (game.style === 'tap' && track.osu) {
       const src = game.styles.tap.source;
       game.flash(src ? `osu! map: ${src.name} · by ${src.mapper}` : 'osu! map found, but its tempo doesn\'t match the song: playing a generated map', 5000);
@@ -495,7 +495,7 @@ function finishTrack(ended, skipToNext = false, failed = false) {
   if (skipToNext) { startNext(); return; }
   if (S.player && (S.player.playing || S.player.soft)) S.player.pause().catch(() => {});
   S.result = {
-    track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, mines: r.mines, walls: r.walls, bullets: r.bullets, sliderBreaks: r.sliderBreaks || 0, isBest, synced,
+    track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, mines: r.mines, walls: r.walls, bullets: r.bullets, sliderBreaks: r.sliderBreaks || 0, surges: r.surges || 0, isBest, synced,
     failed, failedAt: S.failedAt, zeroed: r.zeroed, style, difficulty: game.difficulty, mods: modLabels(game.mods, style),
   };
   game.stop(); S.state = 'results';

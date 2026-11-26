@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwwz2stm';
-import { activeMods, modMultiplier } from './mods.js?v=mwwz2stm';
-import { RideStyle } from './ride.js?v=mwwz2stm';
-import { TapStyle } from './tap.js?v=mwwz2stm';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwwz2stm';
-import { ShootStyle } from './shoot.js?v=mwwz2stm';
-import { SaberFx } from './saberfx.js?v=mwwz2stm';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwxyzbwv';
+import { activeMods, modMultiplier } from './mods.js?v=mwxyzbwv';
+import { RideStyle } from './ride.js?v=mwxyzbwv';
+import { TapStyle } from './tap.js?v=mwxyzbwv';
+import { DrumStyle } from './drums.js?v=mwxyzbwv';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwxyzbwv';
+import { ShootStyle } from './shoot.js?v=mwxyzbwv';
+import { SaberFx } from './saberfx.js?v=mwxyzbwv';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -158,7 +159,7 @@ export class Game {
     this._buildPools();
     this._buildHud();
     const shoot = new ShootStyle(this);
-    this.styles = { ride: new RideStyle(this), shoot, still: shoot, tap: new TapStyle(this) }; // STILL is SHOOT where time moves when you move
+    this.styles = { ride: new RideStyle(this), shoot, still: shoot, tap: new TapStyle(this), drums: new DrumStyle(this) }; // STILL is SHOOT where time moves when you move
     this.tscale = 1; // STILL: how fast time runs (1 = normal); everything else is 1
     this.saberFx = new SaberFx(this); // cosmetic only: blade clashes and wall scrapes
     this.calibrateHeight();
@@ -167,7 +168,7 @@ export class Game {
   get sx() { return this.styles[this.style] || null; }
   get guns() { return this.style === 'shoot' || this.style === 'still'; }
   _styleList() { return [...new Set(Object.values(this.styles))]; }
-  hitZ() { return this.style === 'ride' || this.style === 'tap' ? this.styles[this.style].HIT_Z : BEAT_Z; }
+  hitZ() { return this.style === 'ride' || this.style === 'tap' || this.style === 'drums' ? this.styles[this.style].HIT_Z : BEAT_Z; }
 
   /* ================= world ================= */
   _buildWorld() {
@@ -295,7 +296,7 @@ export class Game {
       }
     } else if (src.gripSpace) {
       // pistols point along the controller's aiming ray (comfortable wrist angle); sabers and orbs use the grip
-      const gp = frame.getPose(this.guns && src.targetRaySpace ? src.targetRaySpace : src.gripSpace, ref);
+      const gp = frame.getPose((this.guns || this.style === 'drums') && src.targetRaySpace ? src.targetRaySpace : src.gripSpace, ref);
       if (gp) { this._m.fromArray(gp.transform.matrix); g.kind = 'controller'; pose = true; }
     }
     if (!pose) return false;
@@ -442,7 +443,7 @@ export class Game {
     if (this.guns) return this.styles.shoot.walkSpeed(this.difficulty) * m;
     return (SPEED[this.difficulty] || 10) * (this.style === 'ride' ? 0.85 : 1) * m;
   }
-  leadMs() { return (SPAWN_DIST / this.speed()) * 1000; }
+  leadMs() { if (this.sx && this.sx.leadMs) return this.sx.leadMs(); return (SPAWN_DIST / this.speed()) * 1000; }
 
   loadTrack(track, tempo, difficulty, { style = 'saber', mods = {} } = {}) {
     for (const n of this.active) this._release(n);
@@ -486,6 +487,7 @@ export class Game {
     this.hud.position.set(-1.75, this.headY - 0.55, -2.2);
     if (this.guns) this.energyBar.position.set(0, this.headY - 0.8, -2);
     else if (this.style === 'tap') this.energyBar.position.set(0, this.headY - 1.05, this.hitZ() + 0.05);
+    else if (this.style === 'drums') this.energyBar.position.set(0, this.headY - 0.29, -1.22);
     else this.energyBar.position.set(0, Math.max(0.2, this.rowY[0] - 0.36), this.hitZ() - 1.9);
     for (const ring of this.rings) ring.position.y = 0;
   }
@@ -1080,7 +1082,7 @@ export class Game {
     const acc = this.run.hits + this.run.misses ? Math.round((100 * this.run.hits) / (this.run.hits + this.run.misses)) : 100;
     g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = f(700, 20);
     const extra = this.guns ? `${this.run.bullets ? ` · shot ${this.run.bullets}×` : ''}${this.run.whips ? ` · whips ${this.run.whips}` : ''}` : `${this.run.mines ? ` · mines hit ${this.run.mines}` : ''}`;
-    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'SURF', shoot: 'SHOOT', still: 'STASIS', tap: 'SPOT' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
+    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'SURF', shoot: 'SHOOT', still: 'STASIS', tap: 'SPOT', drums: 'STRIKE' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
     g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = f(700, 26);
     const name = this.track ? `${this.track.name} · ${this.track.artist}` : '';
     g.fillText(name.length > 58 ? name.slice(0, 57) + '…' : name, 32, 180);
