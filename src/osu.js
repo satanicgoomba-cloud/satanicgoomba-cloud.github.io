@@ -6,7 +6,7 @@
 // maps (lots of favourites and plays). Maps with tempo changes are skipped, because they can't be lined
 // up with the song's beat. The map is lined up with the beat we already detected for the song.
 
-import { getJson, matches, timeout, norm, firstArtist } from './bpm.js?v=mwwym9aj';
+import { getJson, matches, timeout, norm, firstArtist } from './bpm.js?v=mwwz1k8r';
 
 export const OSU_QUALITY = { favourites: 100, plays: 20000, durSec: 20, bpmTol: 0.02 };
 const REVIEWED = new Set(['ranked', 'approved', 'qualified', 'loved']);

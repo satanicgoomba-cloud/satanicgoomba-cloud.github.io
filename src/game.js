@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwwym9aj';
-import { activeMods, modMultiplier } from './mods.js?v=mwwym9aj';
-import { RideStyle } from './ride.js?v=mwwym9aj';
-import { TapStyle } from './tap.js?v=mwwym9aj';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwwym9aj';
-import { ShootStyle } from './shoot.js?v=mwwym9aj';
-import { SaberFx } from './saberfx.js?v=mwwym9aj';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwwz1k8r';
+import { activeMods, modMultiplier } from './mods.js?v=mwwz1k8r';
+import { RideStyle } from './ride.js?v=mwwz1k8r';
+import { TapStyle } from './tap.js?v=mwwz1k8r';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwwz1k8r';
+import { ShootStyle } from './shoot.js?v=mwwz1k8r';
+import { SaberFx } from './saberfx.js?v=mwwz1k8r';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -1080,7 +1080,7 @@ export class Game {
     const acc = this.run.hits + this.run.misses ? Math.round((100 * this.run.hits) / (this.run.hits + this.run.misses)) : 100;
     g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = f(700, 20);
     const extra = this.guns ? `${this.run.bullets ? ` · shot ${this.run.bullets}×` : ''}${this.run.whips ? ` · whips ${this.run.whips}` : ''}` : `${this.run.mines ? ` · mines hit ${this.run.mines}` : ''}`;
-    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'RIDE', shoot: 'SHOOT', still: 'STILL', tap: 'TAP' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
+    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'SURF', shoot: 'SHOOT', still: 'STASIS', tap: 'TAP' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
     g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = f(700, 26);
     const name = this.track ? `${this.track.name} · ${this.track.artist}` : '';
     g.fillText(name.length > 58 ? name.slice(0, 57) + '…' : name, 32, 180);

@@ -3,8 +3,8 @@
 // The game only ever reads positionMs(): the beat map is pinned to playback position,
 // never to decoded audio (Spotify audio cannot be read by the page).
 
-import * as sp from './spotify-api.js?v=mwwym9aj';
-import { getAccessToken } from './spotify-auth.js?v=mwwym9aj';
+import * as sp from './spotify-api.js?v=mwwz1k8r';
+import { getAccessToken } from './spotify-auth.js?v=mwwz1k8r';
 
 /** Interpolating clock: snaps on big jumps, eases small drift to avoid jitter. */
 class Clock {
