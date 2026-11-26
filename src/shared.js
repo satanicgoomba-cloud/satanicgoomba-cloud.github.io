@@ -9,3 +9,4 @@ export const ENERGY = {
   shoot: { start: 1, hit: 0.03, whip: 0.25, bullet: -0.4, wall: -0.15, wallPerSec: -0.5, miss: 0 },
 };
 ENERGY.still = ENERGY.shoot;
+ENERGY.tap = { start: 1, hit: 0.03, tick: 0.008, miss: -0.1, drain: -0.012, wall: 0, wallPerSec: 0 };

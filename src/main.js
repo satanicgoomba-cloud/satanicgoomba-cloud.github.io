@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwwugtl4';
-import * as sp from './spotify-api.js?v=mwwugtl4';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwwugtl4';
+import * as auth from './spotify-auth.js?v=mwwuthgc';
+import * as sp from './spotify-api.js?v=mwwuthgc';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwwuthgc';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwwugtl4';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwwugtl4';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwwugtl4';
-import { Game } from './game.js?v=mwwugtl4';
-import { modLabels } from './mods.js?v=mwwugtl4';
-import * as leaks from './leaks.js?v=mwwugtl4';
-import * as gdrive from './gdrive.js?v=mwwugtl4';
-import { Pointers } from './ui3d.js?v=mwwugtl4';
-import { Menu } from './menu3d.js?v=mwwugtl4';
-import * as prof from './profile.js?v=mwwugtl4';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwwuthgc';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwwuthgc';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwwuthgc';
+import { Game } from './game.js?v=mwwuthgc';
+import { modLabels } from './mods.js?v=mwwuthgc';
+import * as leaks from './leaks.js?v=mwwuthgc';
+import * as gdrive from './gdrive.js?v=mwwuthgc';
+import { Pointers } from './ui3d.js?v=mwwuthgc';
+import { Menu } from './menu3d.js?v=mwwuthgc';
+import * as prof from './profile.js?v=mwwuthgc';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -52,7 +52,7 @@ S.leaks = new leaks.LeakPlayer(); S.leakList = leaks.list(); S.leakQ = ''; S.lea
 const leakView = () => S.leakQ ? leaks.filter(S.leakList, S.leakQ) : leaks.folderView(S.leakList, S.leakDir);
 function bestLine(t) {
   const st = prof.loadStats().tracks[t.id], style = settings.style || 'saber';
-  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Ride', shoot: 'Shoot', still: 'Still' }[style]}) · played ${st.plays}×` : 'Not played yet';
+  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Ride', shoot: 'Shoot', still: 'Still', tap: 'Tap' }[style]}) · played ${st.plays}×` : 'Not played yet';
 }
 const inVR = () => renderer.xr.isPresenting;
 
@@ -446,7 +446,7 @@ async function startTrack(track) {
     }
     S.maxPos = 0; S.ending = false; tapper.reset();
     game.loadTrack(track, tempo0, settings.difficulty || 'normal', { style: settings.style || 'saber', mods: settings.mods || {} });
-    hint.textContent = { saber: 'Esc: pause · Move the mouse to slice · T: tap tempo', ride: 'Esc: pause · The mouse moves the hand · T: tap tempo', shoot: 'Esc: pause · Mouse aims, click fires · T: tap tempo', still: 'Esc: pause · Time moves when the mouse moves · click fires' }[game.style];
+    hint.textContent = { saber: 'Esc: pause · Move the mouse to slice · T: tap tempo', ride: 'Esc: pause · The mouse moves the hand · T: tap tempo', shoot: 'Esc: pause · Mouse aims, click fires · T: tap tempo', still: 'Esc: pause · Time moves when the mouse moves · click fires', tap: 'Esc: pause · Mouse aims · click or Z/X taps (hold for sliders and spinners)' }[game.style];
     S.state = 'play'; game.paused = false; menu.show('hidden');
   } catch (e) {
     let msg = e.message;
@@ -482,7 +482,7 @@ function finishTrack(ended, skipToNext = false, failed = false) {
   if (skipToNext) { startNext(); return; }
   if (S.player && (S.player.playing || S.player.soft)) S.player.pause().catch(() => {});
   S.result = {
-    track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, mines: r.mines, walls: r.walls, bullets: r.bullets, isBest, synced,
+    track, score: r.score, accuracy, rank: rankFor(accuracy), maxCombo: r.maxCombo, perfects: r.perfects, mines: r.mines, walls: r.walls, bullets: r.bullets, sliderBreaks: r.sliderBreaks || 0, isBest, synced,
     failed, failedAt: S.failedAt, zeroed: r.zeroed, style, difficulty: game.difficulty, mods: modLabels(game.mods, style),
   };
   game.stop(); S.state = 'results';

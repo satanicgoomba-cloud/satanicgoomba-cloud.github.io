@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwwugtl4';
-import { activeMods, modMultiplier } from './mods.js?v=mwwugtl4';
-import { RideStyle } from './ride.js?v=mwwugtl4';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwwugtl4';
-import { ShootStyle } from './shoot.js?v=mwwugtl4';
-import { SaberFx } from './saberfx.js?v=mwwugtl4';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwwuthgc';
+import { activeMods, modMultiplier } from './mods.js?v=mwwuthgc';
+import { RideStyle } from './ride.js?v=mwwuthgc';
+import { TapStyle } from './tap.js?v=mwwuthgc';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwwuthgc';
+import { ShootStyle } from './shoot.js?v=mwwuthgc';
+import { SaberFx } from './saberfx.js?v=mwwuthgc';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -157,7 +158,7 @@ export class Game {
     this._buildPools();
     this._buildHud();
     const shoot = new ShootStyle(this);
-    this.styles = { ride: new RideStyle(this), shoot, still: shoot }; // STILL is SHOOT where time moves when you move
+    this.styles = { ride: new RideStyle(this), shoot, still: shoot, tap: new TapStyle(this) }; // STILL is SHOOT where time moves when you move
     this.tscale = 1; // STILL: how fast time runs (1 = normal); everything else is 1
     this.saberFx = new SaberFx(this); // cosmetic only: blade clashes and wall scrapes
     this.calibrateHeight();
@@ -166,7 +167,7 @@ export class Game {
   get sx() { return this.styles[this.style] || null; }
   get guns() { return this.style === 'shoot' || this.style === 'still'; }
   _styleList() { return [...new Set(Object.values(this.styles))]; }
-  hitZ() { return this.style === 'ride' ? this.styles.ride.HIT_Z : BEAT_Z; }
+  hitZ() { return this.style === 'ride' || this.style === 'tap' ? this.styles[this.style].HIT_Z : BEAT_Z; }
 
   /* ================= world ================= */
   _buildWorld() {
@@ -484,6 +485,7 @@ export class Game {
     this.rowY = [0, 1, 2].map((k) => Math.max(0.45, this.headY - 1.05) + k * ROW);
     this.hud.position.set(-1.75, this.headY - 0.55, -2.2);
     if (this.guns) this.energyBar.position.set(0, this.headY - 0.8, -2);
+    else if (this.style === 'tap') this.energyBar.position.set(0, this.headY - 1.05, this.hitZ() + 0.05);
     else this.energyBar.position.set(0, Math.max(0.2, this.rowY[0] - 0.36), this.hitZ() - 1.9);
     for (const ring of this.rings) ring.position.y = 0;
   }
@@ -781,7 +783,7 @@ export class Game {
   /** Is a cube (or orb/enemy beat) due within ms? */
   _noteSoon(ms) {
     const pos = this.player ? this.player.positionMs() : 0;
-    for (const x of this.active) if (x.type === 'note' && !x.dead && x.t - pos < ms && x.t - pos > -100) return true;
+    for (const x of this.active) if (x.type !== 'wall' && x.type !== 'mine' && !x.dead && x.t - pos < ms && x.t - pos > -100) return true;
     return false;
   }
 
@@ -1078,7 +1080,7 @@ export class Game {
     const acc = this.run.hits + this.run.misses ? Math.round((100 * this.run.hits) / (this.run.hits + this.run.misses)) : 100;
     g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = f(700, 20);
     const extra = this.guns ? `${this.run.bullets ? ` · shot ${this.run.bullets}×` : ''}${this.run.whips ? ` · whips ${this.run.whips}` : ''}` : `${this.run.mines ? ` · mines hit ${this.run.mines}` : ''}`;
-    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'RIDE', shoot: 'SHOOT', still: 'STILL' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
+    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'RIDE', shoot: 'SHOOT', still: 'STILL', tap: 'TAP' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
     g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = f(700, 26);
     const name = this.track ? `${this.track.name} · ${this.track.artist}` : '';
     g.fillText(name.length > 58 ? name.slice(0, 57) + '…' : name, 32, 180);

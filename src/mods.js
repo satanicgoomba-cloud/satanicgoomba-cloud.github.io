@@ -5,6 +5,7 @@ export const STYLES = {
   ride: { label: 'RIDE', desc: 'Orbs: touch notes with the matching hand, ride the light rails, dodge walls' },
   shoot: { label: 'SHOOT', desc: 'Pistols: shoot enemies on the beat, dodge their bullets, whip close ones' },
   still: { label: 'STILL', desc: 'Time moves when you move: grab weapons from your table, throw them when spent, block bullets' },
+  tap: { label: 'TAP', desc: 'Aim with the right controller, tap circles on the beat with either trigger, follow sliders, spin spinners' },
 };
 
 // mult: score multiplier while the modifier is on. only: styles it applies to (others ignore it).
@@ -14,13 +15,13 @@ export const MODS = {
   oneLife: { label: 'ONE LIFE', mult: 1.1, desc: 'Any miss or hit ends the song.', off: ['noFail'] },
   fast: { label: 'FASTER', mult: 1.08, desc: 'Everything comes at you 25% faster.', off: ['slow'] },
   slow: { label: 'SLOWER', mult: 0.8, desc: 'Everything comes at you 25% slower.', off: ['fast'] },
-  ghost: { label: 'GHOST NOTES', mult: 1.1, desc: 'Notes fade out before they reach you.', only: ['saber', 'ride'] },
+  ghost: { label: 'GHOST NOTES', mult: 1.1, desc: 'Notes fade out before they reach you.', only: ['saber', 'ride', 'tap'] },
   noArrows: { label: 'NO ARROWS', mult: 0.7, desc: 'Slice cubes any way you like.', only: ['saber'] },
   strict: { label: 'STRICT', mult: 1.12, desc: 'Tighter angles and aim, and mistakes drain more energy.' },
   noMines: { label: 'NO MINES', mult: 0.95, desc: 'No mines.', only: ['saber'] },
-  noWalls: { label: 'NO WALLS', mult: 0.9, desc: 'No walls to dodge.' },
+  noWalls: { label: 'NO WALLS', mult: 0.9, desc: 'No walls to dodge.', only: ['saber', 'ride', 'shoot', 'still'] },
   noBullets: { label: 'BULLETPROOF', mult: 0.85, desc: 'Enemies never shoot back.', only: ['shoot', 'still'] },
-  bigTargets: { label: 'BIG TARGETS', mult: 0.85, desc: 'Bigger notes, wider aim assist.', only: ['ride', 'shoot', 'still'] },
+  bigTargets: { label: 'BIG TARGETS', mult: 0.85, desc: 'Bigger notes, wider aim assist.', only: ['ride', 'shoot', 'still', 'tap'] },
 };
 
 export const MOD_ORDER = Object.keys(MODS);

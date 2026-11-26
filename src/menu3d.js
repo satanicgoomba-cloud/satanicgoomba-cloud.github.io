@@ -1,5 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwwugtl4';
-import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwwugtl4';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwwuthgc';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwwuthgc';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -346,11 +346,12 @@ export class Menu {
       saber: ['Slice pink cubes with the left saber, blue with the right', 'Swing the way the arrow points · dots: any way', 'Keep sabers off mines · duck and lean past walls'],
       ride: ['Touch pink notes with the left hand, blue with the right', 'Green: either hand · gold: both hands together', 'Hold your hand on the rails to the end · dodge walls'],
       shoot: ['Trigger/pinch fires · shoot enemies on the beat', 'Dodge red bullets (head only) · whip close ones', 'Squeeze the grip (or point down) to reload'],
+      tap: ['Point the right controller: the dot is your cursor', 'Either trigger taps circles as the ring closes', 'Hold a trigger to follow slider balls and spin spinners'],
       still: ['Time moves only when you move · trigger fires', 'Spent? Throw it (grip) · grab another from the table', 'Block bullets with a weapon · melee close enemies'],
     }[st];
     const help = this.api.inVR()
       ? ['Trigger or pinch: select · Stick: scroll', ...how, 'Pause: B/Y, Meta button, or tap left wrist · A/X: tap the beat']
-      : ['Click: select · Wheel: scroll', st === 'shoot' || st === 'still' ? `In game: mouse aims, click fires${st === 'still' ? '; moving the mouse moves time' : ''}` : st === 'ride' ? 'In game: the mouse moves the hand' : 'In game: move the mouse to swing the saber', 'T tap tempo · [ ] nudge the beat', 'Esc pause · N next song', 'Add ?bot=1 to the address to watch a bot play'];
+      : ['Click: select · Wheel: scroll', st === 'shoot' || st === 'still' ? `In game: mouse aims, click fires${st === 'still' ? '; moving the mouse moves time' : ''}` : st === 'tap' ? 'In game: mouse aims, click or Z/X taps (hold for sliders)' : st === 'ride' ? 'In game: the mouse moves the hand' : 'In game: move the mouse to swing the saber', 'T tap tempo · [ ] nudge the beat', 'Esc pause · N next song', 'Add ?bot=1 to the address to watch a bot play'];
     const diag = this.api.headsetAudio && this.api.headsetAudio();
     (diag ? [fitText(g, `Headset audio: ${diag}`, W - 50), ...help.slice(0, 4)] : help).forEach((l, i) => g.fillText(l, 30, 680 + i * 24));
     g.textAlign = 'right'; g.fillStyle = 'rgba(244,240,255,0.35)'; g.font = FONT(500, 15); g.fillText(`build ${this.api.build()}`, W - 24, 26);
@@ -451,7 +452,7 @@ export class Menu {
     g.fillStyle = C.text; g.font = FONT(900, 52); g.fillText(r.score.toLocaleString(), W / 2, 212);
     if (r.isBest) { g.fillStyle = C.gold; g.font = FONT(800, 22); g.fillText('NEW PERSONAL BEST', W / 2, 266); }
     else if (r.synced) { g.fillStyle = C.muted; g.font = FONT(600, 18); g.fillText(`Beat sync for this song adjusted ${r.synced > 0 ? '+' : ''}${r.synced} ms for next time`, W / 2, 270); }
-    const last = r.style === 'shoot' || r.style === 'still' ? ['TIMES SHOT', r.bullets || 0] : r.style === 'ride' ? ['WALLS HIT', r.walls || 0] : ['MINES HIT', r.mines || 0];
+    const last = r.style === 'shoot' || r.style === 'still' ? ['TIMES SHOT', r.bullets || 0] : r.style === 'tap' ? ['SLIDER BREAKS', r.sliderBreaks || 0] : r.style === 'ride' ? ['WALLS HIT', r.walls || 0] : ['MINES HIT', r.mines || 0];
     const stats = [['ACCURACY', `${r.accuracy}%`], ['MAX COMBO', r.maxCombo], ['PERFECTS', r.perfects], last];
     const cw = (W - 60) / 4;
     stats.forEach(([k, v], i) => {
