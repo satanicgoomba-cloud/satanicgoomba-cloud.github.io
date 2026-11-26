@@ -1,19 +1,19 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwxyzbwv';
-import * as sp from './spotify-api.js?v=mwxyzbwv';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwxyzbwv';
+import * as auth from './spotify-auth.js?v=mwxyztpx';
+import * as sp from './spotify-api.js?v=mwxyztpx';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwxyztpx';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { fetchOsu } from './osu.js?v=mwxyzbwv';
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwxyzbwv';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwxyzbwv';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwxyzbwv';
-import { Game } from './game.js?v=mwxyzbwv';
-import { modLabels } from './mods.js?v=mwxyzbwv';
-import * as leaks from './leaks.js?v=mwxyzbwv';
-import * as gdrive from './gdrive.js?v=mwxyzbwv';
-import { Pointers } from './ui3d.js?v=mwxyzbwv';
-import { Menu } from './menu3d.js?v=mwxyzbwv';
-import * as prof from './profile.js?v=mwxyzbwv';
+import { fetchOsu } from './osu.js?v=mwxyztpx';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwxyztpx';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwxyztpx';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwxyztpx';
+import { Game } from './game.js?v=mwxyztpx';
+import { modLabels } from './mods.js?v=mwxyztpx';
+import * as leaks from './leaks.js?v=mwxyztpx';
+import * as gdrive from './gdrive.js?v=mwxyztpx';
+import { Pointers } from './ui3d.js?v=mwxyztpx';
+import { Menu } from './menu3d.js?v=mwxyztpx';
+import * as prof from './profile.js?v=mwxyztpx';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -53,7 +53,7 @@ S.leaks = new leaks.LeakPlayer(); S.leakList = leaks.list(); S.leakQ = ''; S.lea
 const leakView = () => S.leakQ ? leaks.filter(S.leakList, S.leakQ) : leaks.folderView(S.leakList, S.leakDir);
 function bestLine(t) {
   const st = prof.loadStats().tracks[t.id], style = settings.style || 'saber';
-  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Surf', shoot: 'Shoot', still: 'Stasis', tap: 'Spot', drums: 'Strike' }[style]}) · played ${st.plays}×` : 'Not played yet';
+  return st ? `Best ${prof.bestFor(st, style).toLocaleString()} (${{ saber: 'Slice', ride: 'Surf', shoot: 'Shoot', still: 'Stasis', tap: 'Spot', drums: 'Snare' }[style]}) · played ${st.plays}×` : 'Not played yet';
 }
 const inVR = () => renderer.xr.isPresenting;
 

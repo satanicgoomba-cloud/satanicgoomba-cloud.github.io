@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwxyzbwv';
-import { activeMods, modMultiplier } from './mods.js?v=mwxyzbwv';
-import { RideStyle } from './ride.js?v=mwxyzbwv';
-import { TapStyle } from './tap.js?v=mwxyzbwv';
-import { DrumStyle } from './drums.js?v=mwxyzbwv';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwxyzbwv';
-import { ShootStyle } from './shoot.js?v=mwxyzbwv';
-import { SaberFx } from './saberfx.js?v=mwxyzbwv';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwxyztpx';
+import { activeMods, modMultiplier } from './mods.js?v=mwxyztpx';
+import { RideStyle } from './ride.js?v=mwxyztpx';
+import { TapStyle } from './tap.js?v=mwxyztpx';
+import { DrumStyle } from './drums.js?v=mwxyztpx';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwxyztpx';
+import { ShootStyle } from './shoot.js?v=mwxyztpx';
+import { SaberFx } from './saberfx.js?v=mwxyztpx';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -1082,7 +1082,7 @@ export class Game {
     const acc = this.run.hits + this.run.misses ? Math.round((100 * this.run.hits) / (this.run.hits + this.run.misses)) : 100;
     g.textAlign = 'center'; g.fillStyle = '#fff'; g.font = f(700, 20);
     const extra = this.guns ? `${this.run.bullets ? ` · shot ${this.run.bullets}×` : ''}${this.run.whips ? ` · whips ${this.run.whips}` : ''}` : `${this.run.mines ? ` · mines hit ${this.run.mines}` : ''}`;
-    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'SURF', shoot: 'SHOOT', still: 'STASIS', tap: 'SPOT', drums: 'STRIKE' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
+    g.fillText(`${acc}% · ${{ saber: 'SLICE', ride: 'SURF', shoot: 'SHOOT', still: 'STASIS', tap: 'SPOT', drums: 'SNARE' }[this.style]} ${this.difficulty.toUpperCase()}${this.modMult !== 1 ? ` ×${this.modMult}` : ''}${extra}${this.run.walls ? ` · walls ${this.run.walls}` : ''}`, W / 2, my + 5);
     g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = f(700, 26);
     const name = this.track ? `${this.track.name} · ${this.track.artist}` : '';
     g.fillText(name.length > 58 ? name.slice(0, 57) + '…' : name, 32, 180);

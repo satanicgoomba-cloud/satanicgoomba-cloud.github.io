@@ -5,7 +5,7 @@ export const STYLES = {
   ride: { label: 'SURF', desc: 'Orbs: touch notes with the matching hand, ride the light rails, dodge walls' },
   shoot: { label: 'SHOOT', desc: 'Pistols: shoot enemies on the beat, dodge their bullets, whip close ones' },
   still: { label: 'STASIS', desc: 'Time moves when you move: grab weapons from your table, throw them when spent, block bullets' },
-  drums: { label: 'STRIKE', desc: 'Drums: hit the pads and cymbals as notes reach the line, either trigger is the kick, fills and surge' },
+  drums: { label: 'SNARE', desc: 'Drums: hit the pads and cymbals as notes reach the line, either trigger is the kick, fills and surge' },
   tap: { label: 'SPOT', desc: 'Aim with the right controller, tap circles on the beat with either trigger, follow sliders, spin spinners' },
 };
 
@@ -23,7 +23,7 @@ export const MODS = {
   noWalls: { label: 'NO WALLS', mult: 0.9, desc: 'No walls to dodge.', only: ['saber', 'ride', 'shoot', 'still'] },
   twoHands: { label: 'SWITCH HANDS', mult: 1, desc: 'About every 30 s, a count-in (tap this hand twice, then the other hand twice) passes aiming to your other arm so one can rest.', only: ['tap'] },
   noBullets: { label: 'BULLETPROOF', mult: 0.85, desc: 'Enemies never shoot back.', only: ['shoot', 'still'] },
-  bigTargets: { label: 'BIG TARGETS', mult: 0.85, desc: 'Bigger notes, wider aim assist (bigger pads in STRIKE).', only: ['ride', 'shoot', 'still', 'tap', 'drums'] },
+  bigTargets: { label: 'BIG TARGETS', mult: 0.85, desc: 'Bigger notes, wider aim assist (bigger pads in SNARE).', only: ['ride', 'shoot', 'still', 'tap', 'drums'] },
   proDrums: { label: 'PRO CYMBALS', mult: 1.1, desc: 'Round notes need a cymbal, bar notes need a drum (either counts without this).', only: ['drums'] },
 };
 

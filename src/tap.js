@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { ENERGY, COLORS } from './shared.js?v=mwxyzbwv';
-import { alignOsu } from './osu.js?v=mwxyzbwv';
+import { ENERGY, COLORS } from './shared.js?v=mwxyztpx';
+import { alignOsu } from './osu.js?v=mwxyztpx';
 const ENERGY_TAP = ENERGY.tap;
 
 // TAP style: a flat playfield floats in front of you. Point the right controller at it (the dot is your
