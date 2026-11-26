@@ -5,7 +5,7 @@
 // download is a few MB. Only the small map files (.dat) are unpacked; the audio is never decoded or kept.
 // What's kept per song: note counts per 2 s, gaps, and the map's name/score (a few hundred bytes).
 
-import { getJson, matches, timeout, norm, firstArtist } from './bpm.js?v=mwv43duc';
+import { getJson, matches, timeout, norm, firstArtist } from './bpm.js?v=mwwugtl4';
 
 /** The quality bar. Ranked/qualified/curated maps were reviewed by people, so they need a little less. */
 export const QUALITY = { score: 0.75, upvotes: 30, reviewedScore: 0.6, maxParity: 0.05, durSec: 3 };

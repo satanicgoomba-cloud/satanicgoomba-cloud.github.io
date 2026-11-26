@@ -1,10 +1,10 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwv43duc';
-import { activeMods, modMultiplier } from './mods.js?v=mwv43duc';
-import { RideStyle } from './ride.js?v=mwv43duc';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwv43duc';
-import { ShootStyle } from './shoot.js?v=mwv43duc';
-import { SaberFx } from './saberfx.js?v=mwv43duc';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwwugtl4';
+import { activeMods, modMultiplier } from './mods.js?v=mwwugtl4';
+import { RideStyle } from './ride.js?v=mwwugtl4';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwwugtl4';
+import { ShootStyle } from './shoot.js?v=mwwugtl4';
+import { SaberFx } from './saberfx.js?v=mwwugtl4';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -755,13 +755,17 @@ export class Game {
       const bp = b.getWorldPosition(new THREE.Vector3());
       const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(b.getWorldQuaternion(new THREE.Quaternion()));
       const head = this.camera.getWorldPosition(new THREE.Vector3());
-      facing = normal.dot(head.clone().sub(bp).normalize()) > 0.35;
-      touching = facing && R.tracked && R.mesh.position.distanceTo(bp) < 0.11;
+      // Doubles and crossovers bring the hands together mid-swing, which used to pause the game by accident.
+      // Now the wrist must really face you, the right hand must rest on the button with both hands nearly
+      // still for 0.4 s, and no cube may be about to arrive.
+      facing = normal.dot(head.clone().sub(bp).normalize()) > 0.6;
+      const still = L.vBase.length() < 0.6 && R.vBase.length() < 0.6;
+      touching = facing && still && R.tracked && R.mesh.position.distanceTo(bp) < 0.08 && !this._noteSoon(700);
     }
     b.visible = show && facing;
-    b.scale.setScalar(touching ? 1.3 : 1);
-    this._wristHold = touching ? this._wristHold + dt : 0;
-    if (this._wristHold > 0.15) { this._wristHold = -10; this._haptic(R, 0.6, 60); this.hooks.onPause && this.hooks.onPause(); }
+    b.scale.setScalar(touching ? 1 + Math.min(1, Math.max(0, this._wristHold) / 0.4) * 0.4 : 1);
+    this._wristHold = touching ? this._wristHold + dt : Math.min(0, this._wristHold + dt);
+    if (this._wristHold > 0.4) { this._wristHold = -1; this._haptic(R, 0.6, 60); this.hooks.onPause && this.hooks.onPause('left-wrist button'); }
   }
 
   _updateInputs() {
@@ -769,7 +773,16 @@ export class Game {
     const L = this.sabers.L, R = this.sabers.R;
     const edge = (key, down) => { const was = this['_' + key]; this['_' + key] = down; return down && !was; };
     if (edge('tapBtn', this._btn(L, 4) || this._btn(R, 4))) this.hooks.onTap && this.hooks.onTap();
-    if (edge('pauseBtn', this._btn(L, 5) || this._btn(R, 5))) this.hooks.onPause && this.hooks.onPause();
+    // B/Y must be held for a moment (a one-frame glitch or a brush of the thumb no longer pauses)
+    const by = this._btn(L, 5) || this._btn(R, 5);
+    this._byHold = by ? (this._byHold || 0) + 1 : 0;
+    if (this._byHold === 4) this.hooks.onPause && this.hooks.onPause(this._btn(L, 5) ? 'Y button' : 'B button');
+  }
+  /** Is a cube (or orb/enemy beat) due within ms? */
+  _noteSoon(ms) {
+    const pos = this.player ? this.player.positionMs() : 0;
+    for (const x of this.active) if (x.type === 'note' && !x.dead && x.t - pos < ms && x.t - pos > -100) return true;
+    return false;
   }
 
   _spawn(n) {

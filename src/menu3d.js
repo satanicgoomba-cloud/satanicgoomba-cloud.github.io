@@ -1,5 +1,5 @@
-import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwv43duc';
-import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwv43duc';
+import { Panel, placeOnArc, rr, fitText, FONT, C } from './ui3d.js?v=mwwugtl4';
+import { STYLES, MODS, MOD_ORDER, modMultiplier, toggleMod } from './mods.js?v=mwwugtl4';
 
 // In-world menus: song select (song wall | fight card | corner), pause, results.
 // Everything here is drawn on canvases; the app supplies data + callbacks via `api`.
@@ -429,6 +429,8 @@ export class Menu {
     g.textAlign = 'center'; g.textBaseline = 'top';
     g.fillStyle = C.text; g.font = FONT(900, 48); g.fillText('PAUSED', W / 2, 30);
     if (t) { g.fillStyle = C.muted; g.font = FONT(600, 22); g.fillText(fitText(g, `${t.name} · ${t.artist}`, W - 60), W / 2, 92); }
+    const why = this.api.pauseWhy && this.api.pauseWhy();
+    if (why) { g.fillStyle = C.muted; g.font = FONT(600, 15); g.fillText(fitText(g, `Paused by: ${why}`, W - 60), W / 2, 118); }
     const items = [['resume', 'RESUME', 'primary'], ['restart', 'RESTART'], ['skip', 'NEXT SONG'], ['select', 'SONG SELECT']];
     const wake = this.api.wakeNeeded && this.api.wakeNeeded();
     if (wake) items.splice(1, 0, ['wake', 'OPEN SPOTIFY', 'primary', '#1ed760']);

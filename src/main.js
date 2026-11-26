@@ -1,18 +1,18 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwv43duc';
-import * as sp from './spotify-api.js?v=mwv43duc';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwv43duc';
+import * as auth from './spotify-auth.js?v=mwwugtl4';
+import * as sp from './spotify-api.js?v=mwwugtl4';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwwugtl4';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwv43duc';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwv43duc';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwv43duc';
-import { Game } from './game.js?v=mwv43duc';
-import { modLabels } from './mods.js?v=mwv43duc';
-import * as leaks from './leaks.js?v=mwv43duc';
-import * as gdrive from './gdrive.js?v=mwv43duc';
-import { Pointers } from './ui3d.js?v=mwv43duc';
-import { Menu } from './menu3d.js?v=mwv43duc';
-import * as prof from './profile.js?v=mwv43duc';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwwugtl4';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwwugtl4';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwwugtl4';
+import { Game } from './game.js?v=mwwugtl4';
+import { modLabels } from './mods.js?v=mwwugtl4';
+import * as leaks from './leaks.js?v=mwwugtl4';
+import * as gdrive from './gdrive.js?v=mwwugtl4';
+import { Pointers } from './ui3d.js?v=mwwugtl4';
+import { Menu } from './menu3d.js?v=mwwugtl4';
+import * as prof from './profile.js?v=mwwugtl4';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -26,7 +26,7 @@ renderer.xr.enabled = true;
 renderer.xr.setReferenceSpaceType('local-floor');
 document.body.prepend(renderer.domElement);
 
-const game = new Game(renderer, { onTap: () => tapTempo(), onPause: () => pause(), onFail: () => onFail() });
+const game = new Game(renderer, { onTap: () => tapTempo(), onPause: (why) => pause(why), onFail: () => onFail() });
 const pointers = new Pointers(renderer, game.scene, game.camera, game.rig);
 const tapper = new TapTempo();
 addEventListener('resize', () => {
@@ -121,6 +121,7 @@ const menu = new Menu(game.scene, pointers, {
   loading: () => S.loading,
   build: () => BUILD,
   current: () => game.track,
+  pauseWhy: () => S.pauseWhy,
   onPauseAction: (id) => ({ resume, wake: () => openSpotifyApp(), restart: () => startTrack(S.queue[S.idx]), skip: () => finishTrack(false, true), select: () => toSelect() }[id] || (() => {}))(),
   lastResult: () => S.result,
   nextInfo: () => {
@@ -501,8 +502,9 @@ function toSelect() {
   menu.show('select');
 }
 
-function pause() {
+function pause(why = 'unknown') {
   if (S.state !== 'play' || game.run.failed) return;
+  S.pauseWhy = why; spLog(`game paused: ${why}`);
   const p = S.player;
   if (p && p.softPause && p.device && p.device.supports_volume !== false && settings.softPause !== false) {
     // keep Spotify running at volume 0 so the Quest doesn't put the Spotify app to sleep
@@ -532,7 +534,7 @@ async function resume() {
       if (vol) { await sp.setVolume(vol, np.device.id).catch(() => {}); np.device.volume_percent = vol; localStorage.removeItem('bb.softVol'); }
       game.flash(`Spotify reconnected: ${d.name}`, 2500);
     }
-    catch (e) { pause(); game.flash(e.message, 6000); }
+    catch (e) { pause('Spotify reconnect failed'); game.flash(e.message, 6000); }
     return;
   }
   menu.show('hidden'); S.state = 'play'; game.paused = false;
@@ -593,13 +595,13 @@ $('enterVR').onclick = async () => {
     await renderer.xr.setSession(xrSession);
     // Pressing the Meta button (system menu) blurs the session: pause the fight.
     xrSession.addEventListener('visibilitychange', () => {
-      if (xrSession && xrSession.visibilityState !== 'visible' && S.state === 'play') pause();
+      if (xrSession && xrSession.visibilityState !== 'visible' && S.state === 'play') pause(`headset ${xrSession.visibilityState === 'hidden' ? 'view hidden' : 'menu or system pop-up'}`);
       if (xrSession) spLog(`headset view ${xrSession.visibilityState}`);
       if (xrSession && xrSession.visibilityState === 'visible') checkSpotifyAwake();
     });
     xrSession.addEventListener('end', () => {
       xrSession = null; game.onXrEnd();
-      if (S.state === 'play') pause();
+      if (S.state === 'play') pause('VR session ended');
       menu.show('hidden'); $('menu').hidden = false;
       $('playScreen').textContent = S.state === 'lobby' ? 'Play on screen' : 'Resume on screen';
     });
@@ -634,7 +636,7 @@ addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
   if (S.state === 'lobby') return;
   if (S.state === 'select' && !e.metaKey && !e.ctrlKey && menu.typeKey(e.key)) { e.preventDefault(); return; } // typing a search
-  if (e.key === 'Escape') { if (S.state === 'play') pause(); else if (S.state === 'pause') resume(); else exitToLobby(); return; }
+  if (e.key === 'Escape') { if (S.state === 'play') pause('Esc key'); else if (S.state === 'pause') resume(); else exitToLobby(); return; }
   if (S.state !== 'play' || e.repeat) return;
   const k = e.key.toLowerCase();
   if (k === 't') tapTempo();
