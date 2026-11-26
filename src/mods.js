@@ -5,7 +5,7 @@ export const STYLES = {
   ride: { label: 'SURF', desc: 'Orbs: touch notes with the matching hand, ride the light rails, dodge walls' },
   shoot: { label: 'SHOOT', desc: 'Pistols: shoot enemies on the beat, dodge their bullets, whip close ones' },
   still: { label: 'STASIS', desc: 'Time moves when you move: grab weapons from your table, throw them when spent, block bullets' },
-  tap: { label: 'TAP', desc: 'Aim with the right controller, tap circles on the beat with either trigger, follow sliders, spin spinners' },
+  tap: { label: 'SPOT', desc: 'Aim with the right controller, tap circles on the beat with either trigger, follow sliders, spin spinners' },
 };
 
 // mult: score multiplier while the modifier is on. only: styles it applies to (others ignore it).
