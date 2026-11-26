@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { COLORS, ENERGY } from './shared.js?v=mwwuthgc';
-import { VoxelBody } from './voxels.js?v=mwwuthgc';
-import { WEAPONS, ORDER, weaponModel, WeaponTable } from './armory.js?v=mwwuthgc';
+import { COLORS, ENERGY } from './shared.js?v=mwwuzuad';
+import { VoxelBody } from './voxels.js?v=mwwuzuad';
+import { WEAPONS, ORDER, weaponModel, WeaponTable } from './armory.js?v=mwwuzuad';
 
 // SHOOT style: a pistol in each hand while the track carries you forward. Enemies step out ahead;
 // shoot each one on its beat (points for timing and for aim), dodge the bullets of the ones you
@@ -192,9 +192,8 @@ export class ShootStyle {
       if (!dbl && n.t - last < minGap) continue;
       last = n.t; sinceClose++;
       side = n.hand === 'L' ? -1 : 1;
-      let hp = 1;
-      if (step >= 0 && r() < 0.08 + step * 0.04) hp = 2;
-      if (step >= 2 && r() < 0.05) hp = 4;
+      const hp = 1; // single-shot enemies only (no armour)
+      if (step >= 0) r(); if (step >= 2) r(); // keep the random sequence (and so the rest of the map) unchanged
       const close = !dbl && sinceClose > 10 && r() < 0.12;
       if (close) sinceClose = 0;
       out.push({

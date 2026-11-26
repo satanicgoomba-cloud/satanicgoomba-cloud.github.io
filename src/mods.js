@@ -20,6 +20,7 @@ export const MODS = {
   strict: { label: 'STRICT', mult: 1.12, desc: 'Tighter angles and aim, and mistakes drain more energy.' },
   noMines: { label: 'NO MINES', mult: 0.95, desc: 'No mines.', only: ['saber'] },
   noWalls: { label: 'NO WALLS', mult: 0.9, desc: 'No walls to dodge.', only: ['saber', 'ride', 'shoot', 'still'] },
+  twoHands: { label: 'SWITCH HANDS', mult: 1.1, desc: 'In the loud parts, bursts at double time alternate hands: aim and tap pink with the left, blue with the right.', only: ['tap'] },
   noBullets: { label: 'BULLETPROOF', mult: 0.85, desc: 'Enemies never shoot back.', only: ['shoot', 'still'] },
   bigTargets: { label: 'BIG TARGETS', mult: 0.85, desc: 'Bigger notes, wider aim assist.', only: ['ride', 'shoot', 'still', 'tap'] },
 };

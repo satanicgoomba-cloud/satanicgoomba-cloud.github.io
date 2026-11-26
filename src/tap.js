@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { ENERGY } from './shared.js?v=mwwuthgc';
+import { ENERGY, COLORS } from './shared.js?v=mwwuzuad';
+import { alignOsu } from './osu.js?v=mwwuzuad';
 const ENERGY_TAP = ENERGY.tap;
 
 // TAP style: a flat playfield floats in front of you. Point the right controller at it (the dot is your
@@ -55,6 +56,7 @@ export class TapStyle {
       arrow: (() => { const sh = new THREE.Shape(); sh.moveTo(0.5, 0); sh.lineTo(-0.35, 0.42); sh.lineTo(-0.15, 0); sh.lineTo(-0.35, -0.42); sh.closePath(); return new THREE.ShapeGeometry(sh); })(),
     };
     this.nums = Array.from({ length: 10 }, (_, i) => textTex(String(i)));
+    this.handTex = { L: textTex('L'), R: textTex('R') };
     // playfield backdrop
     const back = new THREE.Mesh(new THREE.PlaneGeometry((FW + 0.3) * 2, (FH + 0.3) * 2), basic({ color: 0x0d0720, opacity: 0.88 }));
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry((FW + 0.3) * 2, (FH + 0.3) * 2)), new THREE.LineBasicMaterial({ color: 0x8a6cff, transparent: true, opacity: 0.35, fog: false }));
@@ -76,6 +78,15 @@ export class TapStyle {
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3));
     this.laser = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.35, fog: false }));
     this.laser.frustumCulled = false; this.laser.visible = false; s.add(this.laser);
+    // the left hand's cursor and laser, for SWITCH HANDS bursts
+    this.curL = new THREE.Group();
+    const lring = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 32), basic({ color: COLORS.L, depthTest: false, opacity: 0.9 })); lring.scale.setScalar(0.045);
+    const ldot = new THREE.Mesh(this.geo.disc, basic({ color: 0xffffff, depthTest: false })); ldot.scale.setScalar(0.018);
+    this.curL.add(lring, ldot); this.curL.renderOrder = 3e6; this.curL.visible = false; s.add(this.curL);
+    const lg2 = new THREE.BufferGeometry(); lg2.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, -1], 3));
+    this.laserL = new THREE.Line(lg2, new THREE.LineBasicMaterial({ color: COLORS.L, transparent: true, opacity: 0.4, fog: false }));
+    this.laserL.frustumCulled = false; this.laserL.visible = false; s.add(this.laserL);
+    this.aim = { L: { ok: false, x: 0, y: 0 }, R: { ok: false, x: 0, y: 0 } }; this.needLeft = false;
     this.cursor = new THREE.Vector2(0, 0); this.aimOk = false;
     this.held = new Set(); this.botHold = false;
     this._m = new THREE.Matrix4(); this._v = new THREE.Vector3(); this._q = new THREE.Quaternion(); this._s = new THREE.Vector3(1, 1, 1);
@@ -145,8 +156,8 @@ export class TapStyle {
   /* ---------- settings ---------- */
   get p() { return P[this.g.difficulty] || P.normal; }
   cy() { return this.g.headY - 0.15; }
-  cr() { return this.p.cr * (this.g.mods.bigTargets ? 1.25 : 1); }
-  ar() { const m = this.g.mods.fast ? 1.25 : this.g.mods.slow ? 0.75 : 1; return this.p.ar / m; }
+  cr() { return (this.mapCR || this.p.cr) * (this.g.mods.bigTargets ? 1.25 : 1); }
+  ar() { const m = this.g.mods.fast ? 1.25 : this.g.mods.slow ? 0.75 : 1; return (this.mapAR || this.p.ar) / m; }
   win() { const k = this.g.mods.strict ? 0.8 : 1; return this.p.win.map((w) => w * k); }
   live() { const g = this.g; return g.style === 'tap' && g.mode === 'play' && !g.paused && !g.run.failed && g.player && g.player.playing; }
   holding() { return this.held.size > 0 || this.botHold; }
@@ -156,8 +167,101 @@ export class TapStyle {
     this.held.clear(); this.botHold = false; this.fp.count = 0;
   }
 
-  /* ---------- map: circles, sliders and spinners from the generated beat map ---------- */
-  convert(items, { tempo, difficulty, seed }) {
+  /* ---------- map ---------- */
+  /** A real osu! map of the song when one was found (and lines up), else one made from the generated beat map. */
+  convert(items, { tempo, difficulty, seed, mods = {} }) {
+    this.mapCR = this.mapAR = null; this.source = null;
+    const om = this.g.track && this.g.track.osu;
+    let out = om ? this._fromOsu(om, tempo) : null;
+    if (out) this.source = om;
+    else out = this._generated(items, { tempo, difficulty, seed });
+    if (mods.twoHands) out = this._handBursts(out, tempo, difficulty, seed);
+    // where each object's follow points start
+    let prev = null;
+    for (const o of out) {
+      if (prev && prev.type !== 'spinner' && o.type !== 'spinner' && !o.hand && !prev.hand) {
+        const e = prev.type === 'slider' ? (prev.repeats % 2 ? prev.pts[0] : prev.pts[prev.pts.length - 1]) : prev;
+        o.from = { x: e.x, y: e.y, t: prev.t + (prev.dur || 0) };
+      }
+      prev = o;
+    }
+    return out;
+  }
+
+  /** An osu! map, lined up with our beat, in field metres. null if it doesn't line up. */
+  _fromOsu(m, tempo) {
+    const shift = alignOsu(m, tempo); if (shift === null) return null;
+    const S = 0.0032, X = (x) => (x - 256) * S, Y = (y) => -(y - 192) * S, sh = shift + (this.g.shiftMs || 0);
+    this.mapCR = Math.max(0.085, (54.4 - 4.48 * m.cs) * S);
+    this.mapAR = m.ar < 5 ? 1200 + (600 * (5 - m.ar)) / 5 : 1200 - (750 * (m.ar - 5)) / 5;
+    this.mapAR = Math.max(450, this.mapAR);
+    const out = []; let combo = 0, color = 0, id = 1;
+    for (const o of m.objs) {
+      if (o.nc || !out.length) { combo = 0; color = (color + 1 + o.skip) % COMBO_COL.length; }
+      const t = Math.round(o.t + sh);
+      if (o.type === 'spinner') {
+        const dur = Math.max(500, o.end - o.t);
+        out.push({ id: id++, t, type: 'spinner', dur, need: Math.max(1, (dur / 1000) * this.p.spin) });
+        continue;
+      }
+      combo++;
+      const base = { id: id++, t, x: X(o.x), y: Y(o.y), num: combo, color };
+      if (o.type === 'circle') { out.push({ ...base, type: 'circle' }); continue; }
+      // slider: evenly spaced points along the path
+      const raw = o.path.map(([x, y]) => ({ x: X(x), y: Y(y) }));
+      const cum = [0]; for (let k = 1; k < raw.length; k++) cum.push(cum[k - 1] + Math.hypot(raw[k].x - raw[k - 1].x, raw[k].y - raw[k - 1].y));
+      const L = cum[cum.length - 1] || 0.001, pts = [];
+      for (let k = 0, j = 0; k <= 48; k++) {
+        const d = (k / 48) * L; while (j < cum.length - 2 && cum[j + 1] < d) j++;
+        const a = raw[j], b = raw[Math.min(raw.length - 1, j + 1)], f = (d - cum[j]) / ((cum[j + 1] ?? cum[j]) - cum[j] || 1);
+        pts.push({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f });
+      }
+      const repeats = o.slides - 1, span = o.span, dur = span * o.slides, checks = [];
+      for (let leg = 0; leg <= repeats; leg++) {
+        for (const b of o.ticks) checks.push({ t: t + leg * span + (leg % 2 ? span - b : b), kind: 'tick' });
+        if (leg < repeats) checks.push({ t: t + (leg + 1) * span, kind: 'repeat' });
+      }
+      checks.sort((a, b) => a.t - b.t);
+      checks.push({ t: t + dur - Math.min(36, dur * 0.1), kind: 'end' });
+      out.push({ ...base, type: 'slider', dur, repeats, span, pts, checks });
+    }
+    return out;
+  }
+
+  /**
+   * SWITCH HANDS: in the loud parts (choruses), a bar of circles at double time that alternate hands:
+   * pink circles need the left controller to aim and its trigger to tap, blue ones the right.
+   */
+  _handBursts(out, tempo, difficulty, seed) {
+    const r = rng(`${seed}:hands:${difficulty}`), spb = 60000 / tempo.bpm, step = STEP[difficulty] ?? 0;
+    const sub = step <= -1 ? spb : spb / 2, n = step <= -1 ? 4 : 8;
+    const loud = (this.g.sections || []).filter((x) => x.kind === 'chorus' || (x.energy || 0) >= 0.65);
+    const off = (tempo.offsetMs || 0) + (this.g.shiftMs || 0);
+    const bursts = []; let last = -1e9;
+    for (const sec of loud) {
+      if (sec.t1 - sec.t0 < spb * 8) continue;
+      let bs = off + Math.ceil((sec.t0 + spb * 4 - off) / spb) * spb; // a bar into the section, on a beat
+      const be = bs + sub * (n - 1);
+      if (be > sec.t1 - spb || bs - last < 12000) continue;
+      bursts.push(bs); last = bs;
+    }
+    if (!bursts.length) return out;
+    let res = out.slice();
+    for (const bs of bursts) {
+      const be = bs + sub * (n - 1);
+      res = res.filter((o) => o.t + (o.dur || 0) < bs - spb * 0.5 || o.t > be + spb * 0.5);
+      const zig = r() < 0.5 ? 1 : -1;
+      for (let k = 0; k < n; k++) {
+        const hand = k % 2 ? 'R' : 'L', side = hand === 'L' ? -1 : 1, row = Math.floor(k / 2);
+        res.push({ id: 900000 + Math.round(bs) + k, t: Math.round(bs + k * sub), type: 'circle', hand,
+          x: side * (0.45 + row * 0.12 + (r() - 0.5) * 0.08), y: zig * (0.35 - row * 0.23) + (r() - 0.5) * 0.06, num: 0, color: hand === 'L' ? 0 : 1 });
+      }
+    }
+    return res.sort((a, b) => a.t - b.t);
+  }
+
+  /* ---------- a map made from the generated beat map ---------- */
+  _generated(items, { tempo, difficulty, seed }) {
     const r = rng(`${seed}:tap:${difficulty}`), spb = 60000 / tempo.bpm, step = STEP[difficulty] ?? 0, pp = P[difficulty] || P.normal;
     const ts = [];
     for (const n of items.filter((x) => x.type === 'note').sort((a, b) => a.t - b.t)) if (!ts.length || n.t - ts[ts.length - 1].t >= 30) ts.push(n); // a double becomes one circle
@@ -218,15 +322,6 @@ export class TapStyle {
       out.push({ ...base, type: 'circle' });
       lastEnd = t; i++;
     }
-    // where each object's follow points start
-    let prev = null;
-    for (const o of out) {
-      if (prev && prev.type !== 'spinner' && o.type !== 'spinner') {
-        const e = prev.type === 'slider' ? (prev.repeats % 2 ? prev.pts[0] : prev.pts[prev.pts.length - 1]) : prev;
-        o.from = { x: e.x, y: e.y, t: prev.t + (prev.dur || 0) };
-      }
-      prev = o;
-    }
     return out;
   }
   /** A gently curved path of length len from (x, y) that stays on the field, as evenly spaced points. */
@@ -265,11 +360,11 @@ export class TapStyle {
     const m = pool.find((x) => !x.userData.used); if (!m) return null;
     m.userData.used = true; m.visible = true; m.renderOrder = 1e6 - (this._seq = ((this._seq || 0) + 1) % 900000); // earlier objects draw on top
     const R = this.cr(), u = m.userData, cy = this.cy();
-    const col = new THREE.Color(COMBO_COL[n.color || 0]);
+    const col = new THREE.Color(n.hand ? COLORS[n.hand] : COMBO_COL[n.color || 0]);
     const paint = (parts) => {
-      parts.fill.material.color.copy(col).multiplyScalar(0.3); parts.inner.material.color.copy(col);
-      parts.ring.material.color.copy(col).lerp(new THREE.Color(0xffffff), 0.65);
-      parts.num.material.map = this.nums[(n.num || 1) % 10]; parts.num.material.needsUpdate = true;
+      parts.fill.material.color.copy(col).multiplyScalar(n.hand ? 0.5 : 0.3); parts.inner.material.color.copy(col);
+      parts.ring.material.color.copy(col).lerp(new THREE.Color(0xffffff), n.hand ? 0.3 : 0.65);
+      parts.num.material.map = n.hand ? this.handTex[n.hand] : this.nums[(n.num || 1) % 10]; parts.num.material.needsUpdate = true;
     };
     if (n.type === 'circle') {
       paint(u); u.approach.material.color.copy(col).lerp(new THREE.Color(0xffffff), 0.4);
@@ -379,8 +474,13 @@ export class TapStyle {
     const g = this.g, pos = g.songPos(), W = this.win();
     let n = null; // only the earliest circle (or slider head) takes a tap
     for (const x of g.active) if ((x.type === 'circle' || x.type === 'slider') && !x.judged && (!n || x.t < n.t)) n = x;
-    if (!n || !this.aimOk) return;
-    if (Math.hypot(this.cursor.x - n.x, this.cursor.y - n.y) > n.R * 1.1) return; // not on it: taps elsewhere are free
+    if (!n) return;
+    // SWITCH HANDS circles need their own hand's pointer and trigger (on a screen the mouse does both)
+    const own = n.hand && this.g.r.xr.isPresenting && hand;
+    if (own && hand !== n.hand) return;
+    const c = own ? this.aim[n.hand] : { ok: this.aimOk, x: this.cursor.x, y: this.cursor.y };
+    if (!c.ok) return;
+    if (Math.hypot(c.x - n.x, c.y - n.y) > n.R * 1.1) return; // not on it: taps elsewhere are free
     const e = pos - n.t;
     if (e < -W[2]) { if (-e <= EARLY_MISS) { if (n.type === 'circle') this._miss(n); else this._headMiss(n); } return; }
     const rating = Math.abs(e) <= W[0] ? 'perfect' : Math.abs(e) <= W[1] ? 'great' : 'good';
@@ -498,29 +598,35 @@ export class TapStyle {
     // cursor
     this.cur.visible = this.aimOk; this.cur.position.set(this.cursor.x, this.cy() + this.cursor.y, PZ + 0.02);
     this.cur.userData.ring.scale.setScalar(this.holding() ? 0.038 : 0.045);
+    this.needLeft = g.r.xr.isPresenting && g.active.some((n) => n.hand === 'L' && !n.judged && n.t - pos < A + 400);
+    this.curL.visible = this.needLeft && this.aim.L.ok; this.laserL.visible = (this.needLeft || !this.aim.R.ok) && this.aim.L.ok;
+    if (this.curL.visible) this.curL.position.set(this.aim.L.x, this.cy() + this.aim.L.y, PZ + 0.02);
   }
 
-  /** Aiming: the right controller's pointing ray (the left one if the right isn't tracked). */
+  /** Aiming: each controller's pointing ray. The right one is the cursor (the left if the right isn't tracked);
+   *  the left one also aims during SWITCH HANDS bursts. */
   handFrame(h, dt, live) {
-    if (!live) { if (h.hand === 'R') this.laser.visible = false; return; }
+    if (!live) { this.laser.visible = this.laserL.visible = false; return; }
     const g = this.g;
     if (!g.r.xr.isPresenting) return;
-    const R = g.sabers.R, L = g.sabers.L, aimer = R.tracked ? R : L.tracked ? L : null;
-    if (h !== aimer) { if (!aimer) { this.aimOk = false; this.laser.visible = false; } return; }
+    const a = this.aim[h.hand]; a.ok = false;
     const frame = g.r.xr.getFrame(), ref = g.r.xr.getReferenceSpace();
-    const sp = h.src && h.src.targetRaySpace, pose = frame && ref && sp && frame.getPose(sp, ref);
-    if (!pose) { this.aimOk = false; this.laser.visible = false; return; }
-    this._m.fromArray(pose.transform.matrix); g.rig.updateMatrixWorld(); this._m.premultiply(g.rig.matrixWorld);
-    this._m.decompose(this._v, this._q, this._s);
-    this._ray.origin.copy(this._v); this._ray.direction.set(0, 0, -1).applyQuaternion(this._q);
-    const hit = this._ray.intersectPlane(this._plane, new THREE.Vector3());
-    this.aimOk = !!hit;
-    if (hit) {
-      this.cursor.set(clamp(hit.x, -FW - 0.5, FW + 0.5), clamp(hit.y - this.cy(), -FH - 0.5, FH + 0.5));
-      const a = this.laser.geometry.attributes.position;
-      a.setXYZ(0, this._v.x, this._v.y, this._v.z); a.setXYZ(1, hit.x, hit.y, hit.z); a.needsUpdate = true;
+    const sp = h.tracked && h.src && h.src.targetRaySpace, pose = frame && ref && sp && frame.getPose(sp, ref);
+    let hit = null;
+    if (pose) {
+      this._m.fromArray(pose.transform.matrix); g.rig.updateMatrixWorld(); this._m.premultiply(g.rig.matrixWorld);
+      this._m.decompose(this._v, this._q, this._s);
+      this._ray.origin.copy(this._v); this._ray.direction.set(0, 0, -1).applyQuaternion(this._q);
+      hit = this._ray.intersectPlane(this._plane, new THREE.Vector3());
     }
-    this.laser.visible = !!hit;
+    if (hit) {
+      a.ok = true; a.x = clamp(hit.x, -FW - 0.5, FW + 0.5); a.y = clamp(hit.y - this.cy(), -FH - 0.5, FH + 0.5);
+      const line = h.hand === 'L' ? this.laserL : this.laser, at = line.geometry.attributes.position;
+      at.setXYZ(0, this._v.x, this._v.y, this._v.z); at.setXYZ(1, hit.x, hit.y, hit.z); at.needsUpdate = true;
+    }
+    const main = this.aim.R.ok && g.sabers.R.tracked ? this.aim.R : this.aim.L;
+    this.aimOk = main.ok; if (main.ok) this.cursor.set(main.x, main.y);
+    this.laser.visible = this.aim.R.ok && g.sabers.R.tracked;
   }
 
   /** Screen: the mouse is the cursor; the sabers rest low out of the way. */

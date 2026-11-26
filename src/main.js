@@ -1,18 +1,19 @@
 import * as THREE from 'three';
-import * as auth from './spotify-auth.js?v=mwwuthgc';
-import * as sp from './spotify-api.js?v=mwwuthgc';
-import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwwuthgc';
+import * as auth from './spotify-auth.js?v=mwwuzuad';
+import * as sp from './spotify-api.js?v=mwwuzuad';
+import { lookupBpm, prefetchBpm, lookupDiag } from './bpm.js?v=mwwuzuad';
 export const BUILD = (/[?&]v=([\w]+)/.exec(import.meta.url) || [, 'dev'])[1];
-import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwwuthgc';
-import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwwuthgc';
-import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwwuthgc';
-import { Game } from './game.js?v=mwwuthgc';
-import { modLabels } from './mods.js?v=mwwuthgc';
-import * as leaks from './leaks.js?v=mwwuthgc';
-import * as gdrive from './gdrive.js?v=mwwuthgc';
-import { Pointers } from './ui3d.js?v=mwwuthgc';
-import { Menu } from './menu3d.js?v=mwwuthgc';
-import * as prof from './profile.js?v=mwwuthgc';
+import { fetchOsu } from './osu.js?v=mwwuzuad';
+import { SdkPlayer, ConnectPlayer, PracticePlayer, PRACTICE_TRACKS, drmCheck } from './players.js?v=mwwuzuad';
+import { getTempo, saveTempo, TapTempo } from './beatmap.js?v=mwwuzuad';
+import { lookupStructure, analyze, structureSummary } from './structure.js?v=mwwuzuad';
+import { Game } from './game.js?v=mwwuzuad';
+import { modLabels } from './mods.js?v=mwwuzuad';
+import * as leaks from './leaks.js?v=mwwuzuad';
+import * as gdrive from './gdrive.js?v=mwwuzuad';
+import { Pointers } from './ui3d.js?v=mwwuzuad';
+import { Menu } from './menu3d.js?v=mwwuzuad';
+import * as prof from './profile.js?v=mwwuzuad';
 
 const $ = (id) => document.getElementById(id);
 const settings = (() => { try { return JSON.parse(localStorage.getItem('bb.settings')) || {}; } catch { return {}; } })();
@@ -417,6 +418,13 @@ async function startTrack(track) {
       const wait = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
       await Promise.all([getTempo(track).source === 'default' ? wait(lookupBpm(track, { priority: true }), 6000) : null, wait(lookupStructure(track), 8000)]);
     }
+    // TAP: a well-rated osu! map of this song is played as it was made (else the generated map is used)
+    track.osu = null;
+    if ((settings.style || 'saber') === 'tap' && !isPractice(track)) {
+      status('LOOKING FOR AN OSU! MAP…');
+      track.osu = await Promise.race([fetchOsu(track, settings.difficulty || 'normal'), new Promise((r) => setTimeout(() => r(null), 9000))]).catch(() => null);
+      if (track.osu) spLog(`osu! map: ${track.osu.name} by ${track.osu.mapper} (${track.osu.status}, ${track.osu.stars.toFixed(1)}★)`);
+    }
     const tempo0 = getTempo(track), an = analyze(track, tempo0.bpm);
     game.structure = isLeak(track) ? track.sections : an.sections;  // energy: quiet / calm / verse / chorus
     game.beats = tempo0.source === 'tapped' || isLeak(track) ? null : an.beats; // real beat times when a source has them
@@ -447,6 +455,11 @@ async function startTrack(track) {
     S.maxPos = 0; S.ending = false; tapper.reset();
     game.loadTrack(track, tempo0, settings.difficulty || 'normal', { style: settings.style || 'saber', mods: settings.mods || {} });
     hint.textContent = { saber: 'Esc: pause · Move the mouse to slice · T: tap tempo', ride: 'Esc: pause · The mouse moves the hand · T: tap tempo', shoot: 'Esc: pause · Mouse aims, click fires · T: tap tempo', still: 'Esc: pause · Time moves when the mouse moves · click fires', tap: 'Esc: pause · Mouse aims · click or Z/X taps (hold for sliders and spinners)' }[game.style];
+    if (game.style === 'tap' && track.osu) {
+      const src = game.styles.tap.source;
+      game.flash(src ? `osu! map: ${src.name} · by ${src.mapper}` : 'osu! map found, but its tempo doesn\'t match the song: playing a generated map', 5000);
+      if (!src) spLog('osu! map skipped: tempo does not line up');
+    }
     S.state = 'play'; game.paused = false; menu.show('hidden');
   } catch (e) {
     let msg = e.message;
