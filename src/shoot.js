@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { COLORS, ENERGY } from './shared.js?v=mwxyztpx';
-import { VoxelBody } from './voxels.js?v=mwxyztpx';
-import { WEAPONS, ORDER, weaponModel, WeaponTable } from './armory.js?v=mwxyztpx';
+import { COLORS, ENERGY } from './shared.js?v=mwzxv7fb';
+import { VoxelBody } from './voxels.js?v=mwzxv7fb';
+import { WEAPONS, ORDER, weaponModel, WeaponTable } from './armory.js?v=mwzxv7fb';
 
 // SHOOT style: a pistol in each hand while the track carries you forward. Enemies step out ahead;
 // shoot each one on its beat (points for timing and for aim), dodge the bullets of the ones you
@@ -89,10 +89,15 @@ export class ShootStyle {
     const coverMat = new THREE.MeshStandardMaterial({ color: 0x1a1430, metalness: 0.6, roughness: 0.45 });
     const coverEdge = new THREE.LineBasicMaterial({ color: 0x8a5cff });
     this.enemies = [];
+    const shieldGeo = new THREE.SphereGeometry(1, 24, 16);
     for (let i = 0; i < 30; i++) {
       const m = new THREE.Group(); m.visible = false;
       m.userData = { vox: new VoxelBody(m) };
       m.userData.vox.mat.clippingPlanes = [CLIP];
+      // orange shield glow: enemies due on the same beat arrive together in it (a cue only; one shot still kills)
+      const shield = new THREE.Mesh(shieldGeo, new THREE.MeshBasicMaterial({ color: 0xff8a1f, transparent: true, opacity: 0.26, blending: THREE.AdditiveBlending, depthWrite: false, clippingPlanes: [CLIP] }));
+      shield.position.set(0, 0.85, 0.02); shield.scale.set(0.46, 0.98, 0.4); shield.visible = false; shield.renderOrder = 5;
+      m.userData.vox.mesh.add(shield); m.userData.shield = shield;
       const cover = new THREE.Group(); cover.visible = false;
       const geo = new THREE.BoxGeometry(COVER.w, COVER.h, COVER.d); geo.translate(0, COVER.h / 2, 0);
       cover.add(new THREE.Mesh(geo, coverMat), new THREE.LineSegments(new THREE.EdgesGeometry(geo), coverEdge));
@@ -202,7 +207,11 @@ export class ShootStyle {
         zb: close ? -1.15 : -(5.5 + r() * 5.5),
       });
     }
-    return out.sort((a, b) => a.t - b.t);
+    out.sort((a, b) => a.t - b.t);
+    // enemies due on the same beat (or near enough to be one moment) come in as a group, in orange shields
+    const en = out.filter((n) => n.type === 'enemy'), near = Math.min(80, spb * 0.25);
+    for (let i = 0; i < en.length; i++) for (let j = i + 1; j < en.length && en[j].t - en[i].t <= near; j++) en[i].group = en[j].group = true;
+    return out;
   }
 
   spawn(n) {
@@ -210,6 +219,12 @@ export class ShootStyle {
     m.userData.used = true;
     const u = m.userData;
     u.vox.build(n.hp, this.still);
+    u.shield.visible = !!n.group; u.shield.material.opacity = 0;
+    if (n.group) { // orange visor too, so the group reads even behind cover
+      const c = new THREE.Color(0xff8a1f), v = u.vox;
+      for (let i = 0; i < v.n; i++) if (v.part[i] === 1) v.mesh.setColorAt(i, c);
+      v.mesh.instanceColor.needsUpdate = true;
+    }
     m.rotation.set(0, 0, 0); m.visible = true;
     const a = { ...n, mesh: m, hpLeft: n.hp, dead: false, dying: 0, fired: false, risen: 0, covered: !this.still && !n.close, up: 1, coverK: 0 };
     a.up = a.covered ? 0 : 1;
@@ -288,6 +303,7 @@ export class ShootStyle {
     m.rotation.y = Math.atan2(-x, -z);                   // face you
     if (n.dead) { this._placeCover(n, z, dt, true); const done = u.vox.update(dt * g.tscale); if (done) u.cover.visible = false; return done; } // breaking apart; gone once every cube has settled and shrunk
     u.vox.assemble(n.risen);                              // cubes fly in to build the figure
+    if (n.group) u.shield.material.opacity = (0.38 + 0.1 * Math.sin(pos / 110)) * n.risen;
     if (u.vox.loose) u.vox.update(dt * g.tscale);         // chipped armour still falling
     m.visible = shown;
     this._placeCover(n, z, dt, shown);
@@ -435,6 +451,7 @@ export class ShootStyle {
     n.hpLeft = how && how !== 'shuriken' ? 0 : n.hpLeft - (hit.dmg || 1);
     if (n.hpLeft > 0) { vox.chip(at, dir); g._burst(at, 0xff8a1f, 8, 1); g._pop('armor', at); g.addScore(10); return; }
     n.dead = true; n.dying = 0;
+    if (n.group) { n.mesh.userData.shield.visible = false; g._burst(at, 0xff8a1f, 18, 1.6); }
     vox.shatter(at, dir);
     const special = !!how && how !== 'shuriken';
     const dtMs = Math.abs(n.t - pos), win = g.mods.strict ? 180 : 260;

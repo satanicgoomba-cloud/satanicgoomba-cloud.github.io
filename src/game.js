@@ -1,12 +1,12 @@
 import * as THREE from 'three';
-import { generate, sectionAt, SPEED } from './beatmap.js?v=mwxyztpx';
-import { activeMods, modMultiplier } from './mods.js?v=mwxyztpx';
-import { RideStyle } from './ride.js?v=mwxyztpx';
-import { TapStyle } from './tap.js?v=mwxyztpx';
-import { DrumStyle } from './drums.js?v=mwxyztpx';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwxyztpx';
-import { ShootStyle } from './shoot.js?v=mwxyztpx';
-import { SaberFx } from './saberfx.js?v=mwxyztpx';
+import { generate, sectionAt, SPEED } from './beatmap.js?v=mwzxv7fb';
+import { activeMods, modMultiplier } from './mods.js?v=mwzxv7fb';
+import { RideStyle } from './ride.js?v=mwzxv7fb';
+import { TapStyle } from './tap.js?v=mwzxv7fb';
+import { DrumStyle } from './drums.js?v=mwzxv7fb';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwzxv7fb';
+import { ShootStyle } from './shoot.js?v=mwzxv7fb';
+import { SaberFx } from './saberfx.js?v=mwzxv7fb';
 
 // Layout (metres). You stand at z = 0 facing -z; cubes ride the track toward you.
 const BEAT_Z = -0.9;         // where a cube is on its beat (the ideal place to slice it)
@@ -607,6 +607,8 @@ export class Game {
     if (r.failed || !this.track) return;
     if (delta < 0 && mistake && this.mods.strict) delta *= 1.5;
     if (delta < 0 && mistake && this.mods.oneLife) delta = -2;
+    // catch-up: small gains (hits) count for more the emptier the bar is: ×1 when full, ×2.5 at half, ×4 near empty
+    if (delta > 0 && delta < 0.1) delta *= 1 + 3 * (1 - r.energy);
     r.energy = Math.max(0, Math.min(1, r.energy + delta));
     this.hudDirty = true;
     if (r.energy <= 0) {
@@ -873,7 +875,7 @@ export class Game {
       this.run.combo = 0; this.run.misses++;
       this._pop(!rightSaber ? 'color' : 'bad', n.mesh.position);
       this._haptic(g, 0.3, 80);
-      this.energy(ENERGY.saber.bad);
+      this.energy(!rightSaber ? ENERGY.saber.bad : ENERGY.saber.wrongWay); // wrong way costs less than a wrong saber or a miss
       this.hudDirty = true;
       return;
     }

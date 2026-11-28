@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwxyztpx';
+import { COLORS, SPAWN_DIST, ENERGY } from './shared.js?v=mwzxv7fb';
 
 // RIDE style: glowing orbs in your hands. Touch each note with the matching hand as it reaches you
 // (scored on how centred your hand is: no swing needed), keep your hand on the light rails from

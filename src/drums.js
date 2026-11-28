@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { ENERGY, COLORS } from './shared.js?v=mwxyztpx';
-import { sectionAt } from './beatmap.js?v=mwxyztpx';
+import { ENERGY, COLORS } from './shared.js?v=mwzxv7fb';
+import { sectionAt } from './beatmap.js?v=mwzxv7fb';
 const E = ENERGY.drums;
 
 // DRUMS style: a drum kit in front of you and a note highway behind it. Notes slide down four coloured
